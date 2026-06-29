@@ -2,9 +2,15 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main] # post-merge runs on main only
   pull_request:
-    branches: [main]
+    branches: [main] # feature branches are covered by their PR (avoids double runs)
+
+# Needed so the test-results action can publish a Check + PR comment.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
 
 jobs:
   test:
@@ -37,8 +43,32 @@ jobs:
       - name: Type check (mypy)
         run: mypy src/ config/
 
-      - name: Unit tests + coverage gate
-        run: pytest tests/unit/ -v --cov=src/signals --cov-report=term-missing
+      - name: Unit tests (coverage gate + JUnit report)
+        run: |
+          pytest tests/unit/ -v --junitxml=junit.xml \
+            --cov=src/signals --cov-report=term-missing --cov-report=xml
 
-      - name: Security audit (pip-audit)
-        run: pip-audit || true   # advisory: report but do not block on transitive CVEs
+      - name: Publish test results to GitHub
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always() # publish even when tests fail, so results are always visible
+        with:
+          files: junit.xml
+          check_name: "Unit test results"
+          comment_mode: always
+
+      - name: Upload test & coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            junit.xml
+            coverage.xml
+          if-no-files-found: ignore
+
+      - name: Security — bandit (Python SAST, medium+ severity)
+        run: bandit -r src/ -ll
+
+      - name: Security — pip-audit (dependency CVEs)
+        if: always()
+        run: pip-audit || true # advisory: report but do not block on transitive CVEs
