@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from src.data.contracts.schemas import EstimateData, Metric, SignalScore
+from src.signals.construction._common import make_scores, zscore
 
 SIGNAL_NAME = "truebeats"
 SIGNAL_VERSION = "0.1.0"  # pre-validation; bumps on promotion through the registry
@@ -47,41 +48,6 @@ class TrueBeatsWeights:
 
 
 DEFAULT_WEIGHTS = TrueBeatsWeights(expert=1 / 3, trend=1 / 3, management=1 / 3)
-
-
-def _zscore(values: Sequence[float]) -> list[float]:
-    """Standardize ``values`` cross-sectionally; returns zeros if there is no spread."""
-    if len(values) < 2:
-        return [0.0] * len(values)
-    mean = statistics.fmean(values)
-    std = statistics.pstdev(values)
-    if std == 0:
-        return [0.0] * len(values)
-    return [(v - mean) / std for v in values]
-
-
-def _average_ranks(values: Sequence[float]) -> list[float]:
-    """Return 1-based ranks, averaging ties (kept local to avoid a validation import)."""
-    order = sorted(range(len(values)), key=lambda i: values[i])
-    ranks = [0.0] * len(values)
-    i = 0
-    while i < len(values):
-        j = i
-        while j + 1 < len(values) and values[order[j + 1]] == values[order[i]]:
-            j += 1
-        average_rank = (i + j) / 2 + 1
-        for k in range(i, j + 1):
-            ranks[order[k]] = average_rank
-        i = j + 1
-    return ranks
-
-
-def _rank01(values: Sequence[float]) -> list[float]:
-    """Scale average ranks into [0, 1]; a single value maps to 0.5."""
-    n = len(values)
-    if n < 2:
-        return [0.5] * n
-    return [(r - 1.0) / (n - 1.0) for r in _average_ranks(values)]
 
 
 def compute_truebeats(
@@ -154,26 +120,20 @@ def compute_truebeats(
         ]
         trend[ticker] = statistics.fmean(expert_beat[p] for p in peers) if peers else 0.0
 
-    expert_z = _zscore([expert_beat[t] for t in tickers])
-    trend_z = _zscore([trend[t] for t in tickers])
-    management_z = _zscore([-dispersion[t] for t in tickers])  # more disagreement -> lower
+    expert_z = zscore([expert_beat[t] for t in tickers])
+    trend_z = zscore([trend[t] for t in tickers])
+    management_z = zscore([-dispersion[t] for t in tickers])  # more disagreement -> lower
     raw_scores = [
         weights.expert * expert_z[i]
         + weights.trend * trend_z[i]
         + weights.management * management_z[i]
         for i in range(len(tickers))
     ]
-    rank_scores = _rank01(raw_scores)
-
-    return [
-        SignalScore(
-            ticker=ticker,
-            date=as_of,
-            signal_name=SIGNAL_NAME,
-            signal_version=SIGNAL_VERSION,
-            raw_score=raw_scores[i],
-            rank_score=rank_scores[i],
-            data_inputs=["estimates", metric.value],
-        )
-        for i, ticker in enumerate(tickers)
-    ]
+    return make_scores(
+        tickers,
+        raw_scores,
+        signal_name=SIGNAL_NAME,
+        signal_version=SIGNAL_VERSION,
+        as_of=as_of,
+        data_inputs=["estimates", metric.value],
+    )

@@ -62,6 +62,22 @@ Target weights for one rebalance date.
 Fields: `date`, `weights` (ticker→weight, each in **[-1, 1]**), `expected_return`,
 `expected_cvar`, `turnover` (≥0), `construction_method`.
 
+### `FundamentalData`
+Point-in-time fundamentals for one fiscal period. Fields: `ticker`, `report_date` (when the
+figures became available), `fiscal_year`, `fiscal_quarter`, `total_assets` (>0),
+`net_income`, `operating_cash_flow`, `revenue` (≥0), `is_point_in_time`. Feeds
+`fundamental_factors` (accruals, ROA, revenue acceleration).
+
+### `OwnershipData`
+Institutional-ownership snapshot. Fields: `ticker`, `as_of_date`,
+`institutional_ownership_pct` (fraction, 0–1), `institution_count` (≥0), `is_point_in_time`.
+Feeds `ownership_momentum`.
+
+### `SupplyChainLink`
+A directed supplier/customer edge. Fields: `ticker`, `related_ticker`, `relationship`
+(`supplier`|`customer`), `weight` (0–1), `is_point_in_time`. Validates that an edge never
+points to itself. Feeds `supply_chain_contagion`.
+
 ## Changing a contract
 
 A schema change is a breaking change. It requires:
