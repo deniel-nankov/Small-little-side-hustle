@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main] # post-merge runs on main only
   pull_request:
-    branches: [main]
+    branches: [main] # feature branches are covered by their PR (avoids double runs)
 
 # Needed so the test-results action can publish a Check + PR comment.
 permissions:
