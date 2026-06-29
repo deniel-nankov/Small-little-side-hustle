@@ -83,9 +83,7 @@ class DataSource(ABC):
         """
 
     @abstractmethod
-    def get_ownership(
-        self, tickers: Sequence[str], start: date, end: date
-    ) -> list[OwnershipData]:
+    def get_ownership(self, tickers: Sequence[str], start: date, end: date) -> list[OwnershipData]:
         """Return institutional-ownership snapshots within ``[start, end]``.
 
         Args:

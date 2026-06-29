@@ -151,9 +151,7 @@ class FixtureSource(DataSource):
         _log.debug("fixture.get_fundamentals", tickers=len(tickers), records=len(out))
         return out
 
-    def get_ownership(
-        self, tickers: Sequence[str], start: date, end: date
-    ) -> list[OwnershipData]:
+    def get_ownership(self, tickers: Sequence[str], start: date, end: date) -> list[OwnershipData]:
         """See :meth:`DataSource.get_ownership`. Monthly snapshots every ~30 days."""
         if end < start:
             raise ValueError(f"end ({end}) precedes start ({start})")
