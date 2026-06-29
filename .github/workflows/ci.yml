@@ -29,6 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e . --no-deps   # make src/ and config/ importable for mypy & pytest
 
       - name: Lint (ruff)
         run: ruff check src/ tests/ config/ scripts/

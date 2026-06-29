@@ -63,11 +63,9 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 exclude = ["^\\.venv/", "^notebooks/"]
-# Make first-party resolution deterministic across environments: treat the repo root as
-# the package base so `src.*` / `config.*` imports resolve the same locally and in CI.
+# Repo root on the search path so `src.*` / `config.*` resolve. CI also installs the
+# project editable (`pip install -e .`) so resolution never depends on directory scanning.
 mypy_path = "."
-explicit_package_bases = true
-namespace_packages = true
 
 [[tool.mypy.overrides]]
 module = ["structlog.*", "dotenv.*"]
