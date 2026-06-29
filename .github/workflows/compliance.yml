@@ -1,0 +1,24 @@
+name: Compliance
+
+# Always-on, deterministic compliance gate (no API key needed). Enforces the project's
+# non-negotiable rules on every PR. See src/utils/compliance.py.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compliance checks
+        run: PYTHONPATH=. python scripts/compliance_check.py
