@@ -8,7 +8,7 @@ PIP := $(PY) -m pip
 .DEFAULT_GOAL := help
 
 .PHONY: help install venv test-unit test-integration test-all lint format audit \
-        run-daily check-secrets setup-db cov
+        run-daily check-secrets setup-db cov security pre-push install-hooks
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -54,3 +54,14 @@ check-secrets:  ## Guard: refuse to stage anything that looks like a credential
 	@git diff --cached | grep -iE "api_key|secret|password|token" \
 		&& { echo "SECRET DETECTED - DO NOT COMMIT"; exit 1; } \
 		|| echo "Clean"
+
+security:  ## Security scan: bandit (SAST) + pip-audit (dependency CVEs)
+	$(PY) -m bandit -r src/ -ll
+	$(PY) -m pip_audit || true
+
+pre-push: lint test-all security  ## Full gate to run before pushing (lint + tests + security)
+	@echo "pre-push gate passed — safe to push."
+
+install-hooks:  ## Enable the opt-in git pre-push hook (runs 'make pre-push')
+	git config core.hooksPath .githooks
+	@echo "Enabled .githooks: 'git push' now runs 'make pre-push' first."

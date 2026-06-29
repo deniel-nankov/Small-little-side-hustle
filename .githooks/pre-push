@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Opt-in pre-push gate: runs lint + the full test suite and blocks the push on failure.
+# Enable once with:  make install-hooks   (sets git config core.hooksPath .githooks)
+set -euo pipefail
+
+echo "pre-push: running lint + full test suite (filter before push)..."
+make pre-push
+echo "pre-push: all checks passed — pushing."
