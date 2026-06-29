@@ -1,0 +1,40 @@
+# ---- Secrets (NEVER COMMIT) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ---- Licensed / local data (FactSet data is licensed — keep it out of git) ----
+data/
+*.parquet
+*.feather
+*.duckdb
+*.sqlite
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.eggs/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---- Notebooks ----
+.ipynb_checkpoints/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+*.swp

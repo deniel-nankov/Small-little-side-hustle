@@ -1,0 +1,39 @@
+# ============================================================================
+#  Canonical logging reference for yale-alpha-fund.
+#
+#  src/monitoring/logger.py configures structlog programmatically to match this
+#  file (so unit tests need no YAML parser dependency). Keep the two in sync.
+#  See docs/MONITORING.md for the logging standard and level semantics.
+# ============================================================================
+
+version: 1
+
+# Renderer is chosen by APP_ENV:
+#   development -> human-readable colored console
+#   production  -> single-line JSON (one object per event)
+renderers:
+  development: console
+  production: json
+
+# Default level (overridable via LOG_LEVEL env var).
+level: INFO
+
+# Level semantics (PRINCIPLES.md Rule 9):
+levels:
+  DEBUG: internal calculations, function entry/exit
+  INFO: major pipeline steps completing
+  WARNING: unexpected but recoverable
+  ERROR: an operation failed and needs attention
+  CRITICAL: the system cannot continue
+
+# Fields attached to every structured log event.
+standard_fields:
+  - timestamp        # ISO-8601, UTC
+  - level
+  - logger           # module name
+  - event            # short event key, e.g. "factset.pull.start"
+
+# Never log these, at any level (SECURITY.md).
+never_log:
+  - api keys / tokens / secrets / passwords
+  - raw FactSet licensed data dumps

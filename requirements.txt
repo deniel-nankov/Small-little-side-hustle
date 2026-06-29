@@ -1,0 +1,20 @@
+# ============================================================================
+#  Runtime dependencies — PINNED for reproducible installs (PRINCIPLES.md /
+#  SECURITY.md: pin all versions, review updates before merging).
+#  Regenerate with: pip-compile  (or bump deliberately + run `make audit`).
+# ============================================================================
+
+# --- Core: data contracts, config, logging ---
+pydantic==2.13.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+structlog==24.4.0
+
+# --- Numerics / data handling ---
+numpy==2.2.1
+pandas==2.2.3
+scipy==1.15.1
+
+# NOTE: API/client SDKs (factset, ib, quantconnect, nvidia, openai, anthropic,
+# google, psycopg) are added in the milestone that first uses them, so the
+# foundation install stays small and fast. See docs/DEPLOYMENT.md.

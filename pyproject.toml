@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yale-alpha-fund"
+version = "0.1.0"
+description = "Institutional-grade algorithmic trading research platform (Yale hedge fund club)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Yale Alpha Fund" }]
+
+# Runtime dependencies are pinned in requirements.txt (single source of truth for
+# reproducible installs). This list is the loose, human-readable intent.
+dependencies = [
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "python-dotenv>=1.0",
+  "structlog>=24.1",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scipy>=1.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "config*"]
+
+# ----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+  "unit: fast, isolated, no network (tests/unit)",
+  "integration: may hit real APIs/sandbox (tests/integration)",
+  "system: full end-to-end (tests/system)",
+]
+addopts = "-ra"
+
+# ----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "config", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "PTH", "RET", "D"]
+ignore = ["D203", "D213"]  # conflicting docstring conventions; we use D211/D212
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]          # tests don't need full docstring coverage
+"**/__init__.py" = ["D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# ----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+exclude = ["^\\.venv/", "^notebooks/"]
+
+[[tool.mypy.overrides]]
+module = ["structlog.*", "dotenv.*"]
+ignore_missing_imports = true
+
+# ----------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/__init__.py", "*/discovery/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80

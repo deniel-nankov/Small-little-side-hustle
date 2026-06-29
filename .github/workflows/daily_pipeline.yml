@@ -1,0 +1,43 @@
+name: Daily pipeline
+
+# Daily automated run: pull fresh data, compute PRODUCTION signal scores, build the
+# portfolio, log IC to the database, send a Slack digest, alert on IC degradation.
+# Credentials come from GitHub Actions secrets — never from the repo (SECURITY.md).
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC daily
+  workflow_dispatch: {} # allow manual runs
+
+jobs:
+  daily-run:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: production
+      DATA_SOURCE: factset
+      FACTSET_CLIENT_ID: ${{ secrets.FACTSET_CLIENT_ID }}
+      FACTSET_CLIENT_SECRET: ${{ secrets.FACTSET_CLIENT_SECRET }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Milestone 6 enables this. Until the pipeline exists, the step is a guarded no-op so
+      # the scheduled workflow does not fail spuriously.
+      - name: Run daily pipeline
+        run: |
+          if [ -s scripts/daily_run.py ] && grep -q "def main" scripts/daily_run.py; then
+            python scripts/daily_run.py
+          else
+            echo "daily_run.py not yet implemented (Milestone 6) — skipping."
+          fi
