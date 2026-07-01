@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.data.contracts.schemas import SignalStatus
+from src.monitoring.audit import AuditLog
 from src.monitoring.logger import get_logger
 
 _log = get_logger(__name__)
@@ -114,16 +115,24 @@ CREATE TABLE IF NOT EXISTS signals (
 class SignalRegistry:
     """SQLite-backed registry of all signals and their lifecycle state."""
 
-    def __init__(self, db_path: str = ":memory:") -> None:
+    def __init__(self, db_path: str = ":memory:", audit: AuditLog | None = None) -> None:
         """Open (or create) the registry database.
 
         Args:
             db_path: SQLite path, or ``":memory:"`` for an ephemeral in-process DB (tests).
+            audit: Optional tamper-evident audit log; when provided, every registration and
+                lifecycle transition is recorded to it (compliance / institutional trail).
         """
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute(_CREATE_TABLE)
         self._conn.commit()
+        self._audit_log = audit
+
+    def _audit(self, event: str, payload: dict[str, object]) -> None:
+        """Record an event to the audit log if one is attached."""
+        if self._audit_log is not None:
+            self._audit_log.record(event, payload, actor="registry")
 
     def register(self, record: SignalRecord) -> SignalRecord:
         """Insert a new signal.
@@ -148,6 +157,7 @@ class SignalRegistry:
         )
         self._conn.commit()
         _log.info("registry.register", name=record.name, status=record.status.value)
+        self._audit("signal.registered", {"name": record.name, "status": record.status.value})
         return record
 
     def get(self, name: str) -> SignalRecord | None:
@@ -202,6 +212,10 @@ class SignalRegistry:
         updated = record.model_copy(update={"status": new_status, **stamps})
         self._save(updated)
         _log.info("registry.transition", name=name, frm=record.status.value, to=new_status.value)
+        self._audit(
+            "signal.transition",
+            {"name": name, "from": record.status.value, "to": new_status.value},
+        )
         return updated
 
     def update_metrics(
