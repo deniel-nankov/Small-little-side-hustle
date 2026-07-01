@@ -20,15 +20,13 @@ def get_data_source(cfg: Settings | None = None) -> DataSource:
         A ready-to-use data source instance.
 
     Raises:
-        NotImplementedError: if ``data_source=factset`` — the real FactSet source lands
-            in Milestone 2 (requires FactSet API entitlement). Use ``fixture`` until then.
+        MissingCredentialError: if ``data_source=factset`` but FactSet credentials are unset.
     """
     cfg = cfg or get_settings()
     if cfg.data_source is DataSourceKind.fixture:
         return FixtureSource()
     if cfg.data_source is DataSourceKind.factset:
-        raise NotImplementedError(
-            "FactSetSource is implemented in Milestone 2 (needs FactSet API credentials). "
-            "Set DATA_SOURCE=fixture to develop and test against synthetic data."
-        )
+        from src.data.factset.source import FactSetSource  # local import (needs credentials)
+
+        return FactSetSource.from_settings(cfg)
     raise NotImplementedError(f"Unsupported data source: {cfg.data_source!r}")
