@@ -51,7 +51,10 @@ def test_factory_returns_fixture_source() -> None:
     assert isinstance(get_data_source(cfg), FixtureSource)
 
 
-def test_factory_factset_is_not_yet_implemented() -> None:
+def test_factory_factset_requires_credentials() -> None:
+    # The factory now builds FactSetSource; without credentials it fails loudly.
+    from config.settings import MissingCredentialError
+
     cfg = Settings(_env_file=None, data_source="factset")  # type: ignore[arg-type]
-    with pytest.raises(NotImplementedError, match="Milestone 2"):
+    with pytest.raises(MissingCredentialError):
         get_data_source(cfg)
