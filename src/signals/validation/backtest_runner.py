@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from src.data.contracts.schemas import BacktestResult, PriceData, SignalScore
+from src.monitoring.audit import AuditLog
 from src.monitoring.logger import get_logger
 from src.signals.validation.decay_tester import DECAY_HORIZON_DAYS, DECAY_IC_THRESHOLD, decay_test
 from src.signals.validation.ic_calculator import (
@@ -194,6 +195,7 @@ def run_backtest(
     sectors: Mapping[str, str] | None = None,
     existing_signals: Mapping[str, Sequence[SignalScore]] | None = None,
     thresholds: ValidationThresholds = DEFAULT_THRESHOLDS,
+    audit: AuditLog | None = None,
 ) -> BacktestResult:
     """Run the validation suite for one signal and return a :class:`BacktestResult`.
 
@@ -204,6 +206,8 @@ def run_backtest(
         sectors: Optional ``ticker`` -> sector map; enables the sector-neutrality test (#7).
         existing_signals: Optional ``name`` -> scores; enables the correlation test (#6).
         thresholds: Acceptance thresholds.
+        audit: Optional tamper-evident audit log; when provided, the pass/fail decision is
+            recorded (compliance trail).
 
     Returns:
         A :class:`BacktestResult` with IC/return statistics and pass/fail with reasons.
@@ -282,4 +286,19 @@ def run_backtest(
         passed=result.passed_validation,
         n_failures=len(failures),
     )
+    if audit is not None:
+        audit.record(
+            "backtest.completed",
+            {
+                "signal": result.signal_name,
+                "mean_ic": result.mean_ic,
+                "icir": result.icir,
+                "p_value": result.p_value,
+                "passed": result.passed_validation,
+                "failure_reasons": result.failure_reasons,
+                "start": result.start_date.isoformat(),
+                "end": result.end_date.isoformat(),
+            },
+            actor="validation",
+        )
     return result

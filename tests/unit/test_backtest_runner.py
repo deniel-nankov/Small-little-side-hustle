@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import random
 from datetime import date
+from pathlib import Path
 
 import pytest
 from src.data.contracts.schemas import BacktestResult, SignalScore
+from src.monitoring.audit import AuditLog
 from src.signals.validation.backtest_runner import run_backtest
 
 from tests.synth import business_days, flat_bar, make_noise_scores, make_predictive_universe
@@ -82,3 +84,16 @@ def test_empty_scores_raises() -> None:
     _, prices = make_predictive_universe()
     with pytest.raises(ValueError, match="no scores"):
         run_backtest([], prices)
+
+
+def test_run_backtest_records_decision_to_audit_log(tmp_path: Path) -> None:
+    scores, prices = make_predictive_universe()
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    result = run_backtest(scores, prices, n_trials=1, audit=audit)
+
+    entries = audit.entries()
+    assert [e["event"] for e in entries] == ["backtest.completed"]
+    assert audit.verify() is True
+    payload = entries[0]["payload"]
+    assert payload["signal"] == scores[0].signal_name
+    assert payload["passed"] is result.passed_validation

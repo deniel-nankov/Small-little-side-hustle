@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from pathlib import Path
 
 import pytest
 from src.data.contracts.schemas import PortfolioWeights
+from src.monitoring.audit import AuditLog
 from src.portfolio.constraints import PortfolioConstraints, violations
 from src.portfolio.construction import (
     CONSTRUCTION_METHOD,
@@ -72,3 +74,16 @@ def test_cvar_constructor_beats_or_matches_heuristic_cvar() -> None:
     assert lp.construction_method == CVAR_CONSTRUCTION_METHOD
     assert heuristic.construction_method == CONSTRUCTION_METHOD
     assert lp.expected_cvar <= heuristic.expected_cvar + 1e-4
+
+
+def test_both_constructors_record_to_audit_log(tmp_path: Path) -> None:
+    scores, prices = make_predictive_universe()
+    as_of = max(s.date for s in scores)
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    construct_portfolio(scores, prices, as_of, audit=audit)
+    construct_portfolio_cvar(scores, prices, as_of, audit=audit)
+
+    entries = audit.entries()
+    assert [e["event"] for e in entries] == ["portfolio.constructed", "portfolio.constructed"]
+    assert {e["payload"]["method"] for e in entries} == {"vol_scaled_score_tilt", "mean_cvar_lp"}
+    assert audit.verify() is True

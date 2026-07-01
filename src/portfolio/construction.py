@@ -25,6 +25,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 
 from src.data.contracts.schemas import PortfolioWeights, PriceData, SignalScore
+from src.monitoring.audit import AuditLog
 from src.monitoring.logger import get_logger
 from src.portfolio import risk
 from src.portfolio.constraints import PortfolioConstraints, enforce, turnover
@@ -49,6 +50,26 @@ DEFAULT_VOL_FLOOR = 1e-4
 
 #: Module-level default so it is not constructed in the function signature (ruff B008).
 DEFAULT_CONSTRAINTS = PortfolioConstraints()
+
+
+def _audit_portfolio(audit: AuditLog | None, result: PortfolioWeights) -> None:
+    """Record a portfolio-construction decision to the audit log, if one is attached."""
+    if audit is None:
+        return
+    audit.record(
+        "portfolio.constructed",
+        {
+            "date": result.date.isoformat(),
+            "method": result.construction_method,
+            "names": len(result.weights),
+            "gross": round(sum(abs(w) for w in result.weights.values()), 6),
+            "net": round(sum(result.weights.values()), 6),
+            "expected_return": result.expected_return,
+            "expected_cvar": result.expected_cvar,
+            "turnover": result.turnover,
+        },
+        actor="portfolio",
+    )
 
 
 def _trailing_vols(
@@ -78,6 +99,7 @@ def construct_portfolio(
     vol_lookback_days: int = VOL_LOOKBACK_DAYS,
     prev_weights: Mapping[str, float] | None = None,
     cvar_beta: float = risk.CVAR_BETA,
+    audit: AuditLog | None = None,
 ) -> PortfolioWeights:
     """Construct target weights for ``as_of`` from the combined signal.
 
@@ -89,6 +111,7 @@ def construct_portfolio(
         vol_lookback_days: Trailing window for volatility and scenarios.
         prev_weights: Previous book, for turnover (``None`` = flat).
         cvar_beta: CVaR confidence level.
+        audit: Optional audit log; records the construction decision when provided.
 
     Returns:
         A :class:`PortfolioWeights` for ``as_of``.
@@ -135,6 +158,7 @@ def construct_portfolio(
         gross=round(sum(abs(w) for w in weights.values()), 4),
         expected_cvar=round(expected_cvar, 4),
     )
+    _audit_portfolio(audit, result)
     return result
 
 
@@ -148,6 +172,7 @@ def construct_portfolio_cvar(
     cvar_beta: float = risk.CVAR_BETA,
     risk_aversion: float = DEFAULT_RISK_AVERSION,
     expected_return_scale: float = EXPECTED_RETURN_SCALE,
+    audit: AuditLog | None = None,
 ) -> PortfolioWeights:
     """Construct weights for ``as_of`` via the exact mean-CVaR LP (#11).
 
@@ -165,6 +190,7 @@ def construct_portfolio_cvar(
         cvar_beta: CVaR confidence level.
         risk_aversion: Return-vs-CVaR trade-off weight.
         expected_return_scale: Maps a signal z-score to an expected per-period return.
+        audit: Optional audit log; records the construction decision when provided.
 
     Returns:
         A :class:`PortfolioWeights` with ``construction_method="mean_cvar_lp"``.
@@ -214,4 +240,5 @@ def construct_portfolio_cvar(
         gross=round(sum(abs(w) for w in weights.values()), 4),
         expected_cvar=round(expected_cvar, 4),
     )
+    _audit_portfolio(audit, result)
     return result
