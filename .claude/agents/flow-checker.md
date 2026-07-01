@@ -15,7 +15,8 @@ Verify:
    - `src/signals/validation/**` import signal + data only.
    - `src/signals/combination/**` and `src/portfolio/**` depend on validation outputs.
    - `src/execution/**` is downstream of everything.
-   - Nothing imports from `src/monitoring` except to get the logger.
+   - Nothing imports from `src/monitoring` except the logger or the audit log (both are
+     horizontal observability concerns).
    Use `grep` on import statements to catch upward imports.
 2. **Contracts at boundaries.** Functions crossing modules take/return Pydantic models from
    `src/data/contracts/schemas.py`, not raw dicts/DataFrames.

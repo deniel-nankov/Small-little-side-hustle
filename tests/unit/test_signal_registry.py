@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from src.data.contracts.schemas import SignalStatus
+from src.monitoring.audit import AuditLog
 from src.signals.registry.signal_registry import (
     DuplicateSignalError,
     SignalNotFoundError,
@@ -106,3 +107,26 @@ def test_persists_across_reopen(tmp_path: Path) -> None:
         assert stored is not None
         assert stored.status is SignalStatus.validated
         assert stored.validated_at is not None
+
+
+def test_registry_writes_to_audit_log(tmp_path: Path) -> None:
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    reg = SignalRegistry(audit=audit)
+    reg.register(_rec())
+    reg.update_status("truebeats", SignalStatus.validated)
+
+    events = [entry["event"] for entry in audit.entries()]
+    assert "signal.registered" in events
+    assert "signal.transition" in events
+    assert audit.verify() is True  # tamper-evident trail intact
+
+    transition = next(e for e in audit.entries() if e["event"] == "signal.transition")
+    assert transition["payload"]["from"] == "DISCOVERED"
+    assert transition["payload"]["to"] == "VALIDATED"
+
+
+def test_registry_without_audit_is_unaffected() -> None:
+    reg = SignalRegistry()  # no audit log attached
+    reg.register(_rec())
+    reg.update_status("truebeats", SignalStatus.validated)
+    assert reg.require("truebeats").status is SignalStatus.validated
