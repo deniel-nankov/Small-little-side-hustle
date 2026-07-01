@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-
 from config.settings import get_settings
 from src.data.contracts.schemas import DataSourceName
 from src.data.factset.source import FactSetSource
