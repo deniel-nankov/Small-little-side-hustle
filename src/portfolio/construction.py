@@ -28,11 +28,18 @@ from src.data.contracts.schemas import PortfolioWeights, PriceData, SignalScore
 from src.monitoring.logger import get_logger
 from src.portfolio import risk
 from src.portfolio.constraints import PortfolioConstraints, enforce, turnover
+from src.portfolio.mean_cvar import DEFAULT_RISK_AVERSION, solve_mean_cvar
 from src.signals.construction._common import zscore
 
 _log = get_logger(__name__)
 
 CONSTRUCTION_METHOD = "vol_scaled_score_tilt"
+
+#: Construction method label for the exact Rockafellar-Uryasev mean-CVaR LP.
+CVAR_CONSTRUCTION_METHOD = "mean_cvar_lp"
+
+#: Maps a cross-sectional signal z-score to an expected per-period return for the optimiser.
+EXPECTED_RETURN_SCALE = 0.01
 
 #: Trailing window (observations) for per-name volatility and the CVaR scenario set.
 VOL_LOOKBACK_DAYS = 63
@@ -123,6 +130,85 @@ def construct_portfolio(
     )
     _log.info(
         "portfolio.constructed",
+        date=str(as_of),
+        names=len(weights),
+        gross=round(sum(abs(w) for w in weights.values()), 4),
+        expected_cvar=round(expected_cvar, 4),
+    )
+    return result
+
+
+def construct_portfolio_cvar(
+    combined_scores: Sequence[SignalScore],
+    prices: Sequence[PriceData],
+    as_of: date,
+    constraints: PortfolioConstraints = DEFAULT_CONSTRAINTS,
+    scenario_lookback_days: int = VOL_LOOKBACK_DAYS,
+    prev_weights: Mapping[str, float] | None = None,
+    cvar_beta: float = risk.CVAR_BETA,
+    risk_aversion: float = DEFAULT_RISK_AVERSION,
+    expected_return_scale: float = EXPECTED_RETURN_SCALE,
+) -> PortfolioWeights:
+    """Construct weights for ``as_of`` via the exact mean-CVaR LP (#11).
+
+    Expected returns come from the combined signal (z-scored, scaled to return units);
+    scenarios are the trailing per-date return cross-sections. The LP minimises CVaR minus a
+    return reward, subject to the same position / gross / neutrality constraints.
+
+    Args:
+        combined_scores: Combined signal scores (must include the ``as_of`` cross-section).
+        prices: Price bars for the CVaR scenario set.
+        as_of: Rebalance date.
+        constraints: Position / gross / neutrality limits.
+        scenario_lookback_days: Trailing window for the scenario set.
+        prev_weights: Previous book, for turnover (``None`` = flat).
+        cvar_beta: CVaR confidence level.
+        risk_aversion: Return-vs-CVaR trade-off weight.
+        expected_return_scale: Maps a signal z-score to an expected per-period return.
+
+    Returns:
+        A :class:`PortfolioWeights` with ``construction_method="mean_cvar_lp"``.
+
+    Raises:
+        ValueError: if there are no combined scores on ``as_of``, or no scenarios.
+    """
+    day_scores = [s for s in combined_scores if s.date == as_of]
+    if not day_scores:
+        raise ValueError(f"no combined scores on {as_of}")
+
+    tickers = sorted({s.ticker for s in day_scores})
+    raw_by_ticker = {s.ticker: s.raw_score for s in day_scores}
+    standardized = zscore([raw_by_ticker[t] for t in tickers])
+    expected_returns = {t: standardized[i] * expected_return_scale for i, t in enumerate(tickers)}
+
+    scenarios = risk.build_scenarios(prices, as_of, scenario_lookback_days)
+    if not scenarios:
+        raise ValueError(f"no scenarios available on/before {as_of}")
+
+    weights = solve_mean_cvar(
+        expected_returns,
+        scenarios,
+        max_position=constraints.max_position,
+        max_gross=constraints.max_gross,
+        dollar_neutral=constraints.dollar_neutral,
+        cvar_beta=cvar_beta,
+        risk_aversion=risk_aversion,
+    )
+
+    portfolio_returns = risk.portfolio_scenario_returns(weights, scenarios)
+    expected_return = statistics.fmean(portfolio_returns) if portfolio_returns else 0.0
+    expected_cvar = risk.conditional_value_at_risk(portfolio_returns, cvar_beta)
+
+    result = PortfolioWeights(
+        date=as_of,
+        weights=weights,
+        expected_return=expected_return,
+        expected_cvar=expected_cvar,
+        turnover=turnover(weights, prev_weights),
+        construction_method=CVAR_CONSTRUCTION_METHOD,
+    )
+    _log.info(
+        "portfolio.constructed_cvar",
         date=str(as_of),
         names=len(weights),
         gross=round(sum(abs(w) for w in weights.values()), 4),

@@ -1,0 +1,3 @@
+from typing import Any
+
+def linprog(*args: Any, **kwargs: Any) -> Any: ...

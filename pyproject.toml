@@ -57,18 +57,19 @@ convention = "google"
 
 # ----------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.11"
+# 3.12 (CI runner + dev); required so mypy can parse modern numpy/scipy PEP-695 stubs.
+python_version = "3.12"
 strict = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
 exclude = ["^\\.venv/", "^notebooks/"]
-# Repo root on the search path so `src.*` / `config.*` resolve. CI also installs the
-# project editable (`pip install -e .`) so resolution never depends on directory scanning.
-mypy_path = "."
+# `stubs/` first (a minimal scipy stub, so mypy never parses the real scipy/numpy stubs,
+# which crash mypy on newer numpy), then repo root so `src.*` / `config.*` resolve.
+mypy_path = ["stubs", "."]
 
 [[tool.mypy.overrides]]
-module = ["structlog.*", "dotenv.*"]
+module = ["structlog.*", "dotenv.*", "numpy", "numpy.*"]
 ignore_missing_imports = true
 
 # ----------------------------------------------------------------------------
