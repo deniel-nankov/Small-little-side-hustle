@@ -11,6 +11,8 @@ Rules enforced (see docs/PRINCIPLES.md):
 * No ``print()`` in library code — use the structured logger (Rule 9).
 * No bare ``except:`` — no silent failures (Rule 2).
 * No obvious hardcoded credentials (Rule 4 / SECURITY.md).
+* No wall-clock time in analytics code (``src/signals``, ``src/portfolio``) — signals must
+  be driven by an explicit as-of date, never ``date.today()`` (#31, look-ahead risk).
 """
 
 from __future__ import annotations
@@ -30,9 +32,14 @@ _SECRET_RE = re.compile(
     r"\b(password|secret|api_key|token)\b\s*=\s*['\"][^'\"]+['\"]", re.IGNORECASE
 )
 
+# Wall-clock access is a look-ahead / reproducibility hazard in analytics code (#31).
+_ANALYTICS_DIRS = ("src/signals", "src/portfolio")
+_WALLCLOCK_ALLOWED = ("src/signals/registry/signal_registry.py",)  # bookkeeping timestamps
+_WALLCLOCK_RE = re.compile(r"\b(date\.today|datetime\.now|datetime\.utcnow|time\.time)\s*\(")
 
-def _iter_py(root: Path) -> Iterator[tuple[str, Path]]:
-    for directory in _SCAN_DIRS:
+
+def _iter_py(root: Path, dirs: Sequence[str] = _SCAN_DIRS) -> Iterator[tuple[str, Path]]:
+    for directory in dirs:
         for path in sorted((root / directory).rglob("*.py")):
             rel = path.relative_to(root).as_posix()
             if rel != _SELF:
@@ -40,10 +47,14 @@ def _iter_py(root: Path) -> Iterator[tuple[str, Path]]:
 
 
 def _scan(
-    root: Path, regex: re.Pattern[str], message: str, allowed: Sequence[str] = ()
+    root: Path,
+    regex: re.Pattern[str],
+    message: str,
+    allowed: Sequence[str] = (),
+    dirs: Sequence[str] = _SCAN_DIRS,
 ) -> list[str]:
     violations: list[str] = []
-    for rel, path in _iter_py(root):
+    for rel, path in _iter_py(root, dirs):
         if rel in allowed:
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -72,6 +83,17 @@ def check_no_hardcoded_secrets(root: Path) -> list[str]:
     return _scan(root, _SECRET_RE, "possible hardcoded credential")
 
 
+def check_no_wallclock_in_analytics(root: Path) -> list[str]:
+    """Flag wall-clock time in signal/portfolio code (look-ahead risk, #31)."""
+    return _scan(
+        root,
+        _WALLCLOCK_RE,
+        "wall-clock time in analytics code (pass an explicit as-of date)",
+        _WALLCLOCK_ALLOWED,
+        dirs=_ANALYTICS_DIRS,
+    )
+
+
 def run_checks(root: Path) -> list[str]:
     """Run all compliance checks and return the aggregated list of violations.
 
@@ -86,4 +108,5 @@ def run_checks(root: Path) -> list[str]:
         *check_no_print(root),
         *check_no_bare_except(root),
         *check_no_hardcoded_secrets(root),
+        *check_no_wallclock_in_analytics(root),
     ]

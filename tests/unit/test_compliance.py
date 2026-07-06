@@ -10,6 +10,7 @@ from src.utils.compliance import (
     check_no_direct_env,
     check_no_hardcoded_secrets,
     check_no_print,
+    check_no_wallclock_in_analytics,
     run_checks,
 )
 
@@ -51,3 +52,29 @@ def test_allows_env_access_in_settings(tmp_path: Path) -> None:
 def test_flags_hardcoded_secret(tmp_path: Path) -> None:
     root = _write(tmp_path, "src/x.py", 'api_key = "abc123secret"\n')
     assert check_no_hardcoded_secrets(root)
+
+
+def test_flags_wallclock_in_signal_code(tmp_path: Path) -> None:
+    # Signals must be driven by an explicit as-of date, never the wall clock (#31).
+    code = "from datetime import date\nCUTOFF = date.today()\n"
+    root = _write(tmp_path, "src/signals/construction/x.py", code)
+    assert check_no_wallclock_in_analytics(root)
+
+
+def test_flags_wallclock_in_portfolio_code(tmp_path: Path) -> None:
+    code = "from datetime import datetime\nNOW = datetime.now()\n"
+    root = _write(tmp_path, "src/portfolio/x.py", code)
+    assert check_no_wallclock_in_analytics(root)
+
+
+def test_allows_wallclock_outside_analytics(tmp_path: Path) -> None:
+    # Monitoring/bookkeeping code may legitimately timestamp with the wall clock.
+    code = "from datetime import datetime\nNOW = datetime.now()\n"
+    root = _write(tmp_path, "src/monitoring/x.py", code)
+    assert check_no_wallclock_in_analytics(root) == []
+
+
+def test_allows_registry_bookkeeping_timestamp(tmp_path: Path) -> None:
+    code = "from datetime import UTC, datetime\nNOW = datetime.now(UTC)\n"
+    root = _write(tmp_path, "src/signals/registry/signal_registry.py", code)
+    assert check_no_wallclock_in_analytics(root) == []
