@@ -45,8 +45,10 @@ make pre-push                               # full gate: lint + all tests + secu
 
 - **Python:** dev box is **3.14** (`.venv/`); **CI runs 3.12**. Code targets 3.11+.
 - **Default data source is `fixture`** (deterministic synthetic data, no credentials). The
-  whole platform works with zero external access. Set `DATA_SOURCE=factset` only once FactSet
-  entitlement lands (see §9).
+  whole platform works with zero external access. **`DATA_SOURCE=public` gives REAL data for
+  free** (Yahoo daily prices + SEC EDGAR point-in-time fundamentals, no keys; estimates/
+  ownership/supply-chain raise `NotImplementedError`). Set `DATA_SOURCE=factset` only once
+  FactSet entitlement lands (see §9).
 - **Dev server (Jupyter):** config in `~/Documents/.claude/launch.json` (port **8889**). Note
   `preview_start` fails here (macOS TCC sandbox can't read `~/Documents`); start it from a
   shell instead:
@@ -85,7 +87,8 @@ yale-alpha-fund/
 │   ├── workflows/compliance.yml   ← runs scripts/compliance_check.py (REQUIRED check)
 │   ├── workflows/codeql.yml       ← security scanning
 │   ├── dependabot.yml, copilot-instructions.md, ISSUE_TEMPLATE/, PULL_REQUEST_TEMPLATE.md
-├── .claude/agents/                ← repo subagents: compliance-reviewer, security-reviewer, flow-checker
+├── .claude/agents/                ← repo subagents: compliance-reviewer, security-reviewer,
+│                                     flow-checker, test-guardian, edge-case-hunter
 ├── config/
 │   └── settings.py                ← the ONLY place env vars are read (pydantic-settings, SecretStr)
 ├── docs/                          ← ARCHITECTURE, PRINCIPLES, SECURITY, TESTING, DATA_CONTRACTS,
@@ -95,6 +98,8 @@ yale-alpha-fund/
 │   │   ├── contracts/schemas.py   ← Pydantic data contracts (the law: frozen, extra=forbid)
 │   │   ├── source/                ← DataSource ABC + FixtureSource + get_data_source() factory
 │   │   ├── factset/               ← client.py (HTTP, retry, auth), source.py (FactSetSource) [Stage 2]
+│   │   ├── public/                ← FREE real data: yahoo.py (prices), edgar.py (PIT fundamentals),
+│   │   │                             source.py (PublicSource) — DATA_SOURCE=public, no credentials
 │   │   └── market/                ← price_volume stub
 │   ├── signals/
 │   │   ├── construction/          ← truebeats, fundamental_factors, ownership_signal,
@@ -147,8 +152,8 @@ yale-alpha-fund/
 | **3 · Signals & validation** | ✅ done | 4 signals + full 7-test suite + registry (all on fixtures) |
 | **5 · Combination & portfolio** | ✅ done | selector, optimal weights, **exact mean-CVaR LP** (#11) |
 | **H · Hardening** | 🟢 4/5 | CI test reports, CodeQL+Dependabot+bandit, pre-push gate, Claude subagents. Open: **#3** (per-ticket test convention doc) |
-| **C · Institutional compliance** | 🟡 3/8 | Done: #28 audit-wire registry, #29 audit-wire validation/portfolio, #30 SHA-256 sidecars. Open: **#31** PIT leakage guard, **#32** train/test discipline, **#33** expand compliance checker, **#34** reproducibility manifest, **#35** CODEOWNERS |
-| **2 · Data layer (FactSet)** | 🟡 blocked | **#7 done** (client + get_prices, mocked-tested). **#8 open** (estimates/fundamentals/ownership/supply_chain still `NotImplementedError`). Blocked on entitlement (§9) |
+| **C · Institutional compliance** | 🟡 4/8 | Done: #28 audit-wire registry, #29 audit-wire validation/portfolio, #30 SHA-256 sidecars, **#31 PIT leakage guard** (`src/utils/pit.py`: PITDataSource clamp+verify; wall-clock ban in analytics). Open: **#32** train/test discipline, **#33** expand compliance checker, **#34** reproducibility manifest, **#35** CODEOWNERS |
+| **2 · Data layer** | 🟡 partial | **#7 done** (FactSet client + get_prices). **PR #43: `DATA_SOURCE=public` shipped** — real Yahoo prices + EDGAR PIT fundamentals, live-verified. **#8 open** (FactSet estimates/fundamentals/etc., blocked on entitlement §9); **#45 open** (EDGAR 13F ownership parser) |
 | **4 · AI discovery** | ⚪ not started | #9 NeMo, #10 AlphaAgent (need NVIDIA/LLM API keys) |
 | **6 · Execution & monitoring** | ⚪ not started | #12 QuantConnect, #13 monitoring alerts/dashboard |
 | **7 · Live trading** | ⚪ not started | #14 pre-flight → IBKR paper → live |
