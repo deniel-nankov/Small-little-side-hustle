@@ -29,4 +29,8 @@ def get_data_source(cfg: Settings | None = None) -> DataSource:
         from src.data.factset.source import FactSetSource  # local import (needs credentials)
 
         return FactSetSource.from_settings(cfg)
+    if cfg.data_source is DataSourceKind.public:
+        from src.data.public.source import PublicSource  # local import (network-backed)
+
+        return PublicSource.from_settings(cfg)
     raise NotImplementedError(f"Unsupported data source: {cfg.data_source!r}")

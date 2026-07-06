@@ -39,6 +39,7 @@ class DataSourceKind(str, Enum):
 
     fixture = "fixture"
     factset = "factset"
+    public = "public"  # free real data: Stooq prices + EDGAR fundamentals (no credentials)
 
 
 class MissingCredentialError(RuntimeError):
@@ -67,6 +68,9 @@ class Settings(BaseSettings):
     # ---- FactSet ----
     factset_client_id: SecretStr | None = None
     factset_client_secret: SecretStr | None = None
+
+    # ---- SEC EDGAR (free; fair-access rules ask for a name + contact email) ----
+    edgar_user_agent: str = "yale-alpha-fund research (set EDGAR_USER_AGENT in .env)"
 
     # ---- LLM / agent providers ----
     nvidia_api_key: SecretStr | None = None

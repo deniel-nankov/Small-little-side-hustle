@@ -31,6 +31,8 @@ class DataSourceName(str, Enum):
     factset = "factset"
     backup = "backup"
     fixture = "fixture"
+    yahoo = "yahoo"  # free daily prices (keyless chart API, true adjusted close)
+    edgar = "edgar"  # free SEC point-in-time fundamentals
 
 
 class Metric(str, Enum):
