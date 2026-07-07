@@ -22,6 +22,18 @@ _TICKERS_JSON = json.dumps(
     {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
 ).encode()
 
+# Ordered roughly by market cap, as SEC serves it; includes a duplicate CIK
+# (share classes) that top_tickers must collapse to the first listing.
+_MULTI_TICKERS_JSON = json.dumps(
+    {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
+        "2": {"cik_str": 1652044, "ticker": "GOOGL", "title": "Alphabet Inc."},
+        "3": {"cik_str": 1652044, "ticker": "GOOG", "title": "Alphabet Inc."},
+        "4": {"cik_str": 1018724, "ticker": "amzn", "title": "Amazon.com Inc."},
+    }
+).encode()
+
 
 def _duration(concept_start: str, end: str, val: float, filed: str, fy: int, fp: str) -> dict:
     entry = {"start": concept_start, "end": end, "val": val, "filed": filed}
@@ -157,6 +169,47 @@ def test_ticker_map_fetched_once_across_calls() -> None:
     client.get_fundamentals(["AAPL"], date(2026, 1, 1), date(2026, 6, 30))
     client.get_fundamentals(["AAPL"], date(2026, 1, 1), date(2026, 6, 30))
     assert sum("company_tickers" in u for u, _ in calls) == 1
+
+
+def _multi_transport_factory():  # noqa: ANN202
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def transport(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+        calls.append((url, headers))
+        if "company_tickers" in url:
+            return 200, _MULTI_TICKERS_JSON
+        return 200, _facts_body()
+
+    return transport, calls
+
+
+def test_top_tickers_preserves_order_dedupes_share_classes_uppercases() -> None:
+    transport, _ = _multi_transport_factory()
+    client = EdgarClient("test-agent test@example.com", transport=transport)
+    # GOOG (same CIK as GOOGL) is collapsed; amzn is uppercased; SEC order kept.
+    assert client.top_tickers(4) == ["AAPL", "MSFT", "GOOGL", "AMZN"]
+
+
+def test_top_tickers_truncates_to_n() -> None:
+    transport, _ = _multi_transport_factory()
+    client = EdgarClient("test-agent test@example.com", transport=transport)
+    assert client.top_tickers(2) == ["AAPL", "MSFT"]
+
+
+def test_top_tickers_rejects_non_positive_n() -> None:
+    transport, _ = _multi_transport_factory()
+    client = EdgarClient("test-agent test@example.com", transport=transport)
+    with pytest.raises(ValueError, match="n must be"):
+        client.top_tickers(0)
+
+
+def test_top_tickers_shares_the_cached_listing_with_cik_lookup() -> None:
+    transport, calls = _multi_transport_factory()
+    client = EdgarClient("test-agent test@example.com", transport=transport)
+    client.top_tickers(3)
+    client.cik_for("MSFT")
+    client.top_tickers(2)
+    assert sum("company_tickers" in u for u, _ in calls) == 1  # one fetch total
 
 
 def test_polite_delay_between_requests() -> None:

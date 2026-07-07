@@ -19,6 +19,7 @@ from pathlib import Path
 
 from config.settings import get_settings
 from src.data.contracts.schemas import BacktestResult
+from src.data.public.edgar import EdgarClient
 from src.data.source import get_data_source
 from src.monitoring.audit import AuditLog
 from src.pipeline.real_backtest import run_fundamental_backtest, run_train_test_backtest
@@ -59,6 +60,14 @@ def main(argv: list[str] | None = None) -> int:
     """Parse args, run the backtest pipeline, and write a summary. Returns exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tickers", default=DEFAULT_UNIVERSE, help="comma-separated universe")
+    parser.add_argument(
+        "--universe-top",
+        type=int,
+        default=0,
+        metavar="N",
+        help="use the top-N companies from SEC's listing instead of --tickers "
+        "(TODAY'S list — historical runs carry survivorship bias)",
+    )
     parser.add_argument("--start", type=date.fromisoformat, default=date(2024, 7, 1))
     parser.add_argument("--end", type=date.fromisoformat, default=date(2026, 6, 30))
     parser.add_argument("--score-every", type=int, default=5, help="score every Nth trading day")
@@ -75,8 +84,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--audit", type=Path, default=Path("data/audit/backtests.jsonl"))
     args = parser.parse_args(argv)
 
-    source = get_data_source(get_settings())
-    tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+    cfg = get_settings()
+    source = get_data_source(cfg)
+    if args.universe_top > 0:
+        tickers = EdgarClient(cfg.edgar_user_agent).top_tickers(args.universe_top)
+        sys.stdout.write(
+            f"universe: top {len(tickers)} from SEC listing "
+            "(today's list — survivorship-biased for historical windows)\n"
+        )
+    else:
+        tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
     args.audit.parent.mkdir(parents=True, exist_ok=True)
     audit = AuditLog(args.audit)
 
