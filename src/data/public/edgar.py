@@ -38,6 +38,10 @@ _log = get_logger(__name__)
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
+#: Polite spacing between requests (SEC allows 10 req/s; exceeding it earns a ~10-minute
+#: 403 "Request Rate Threshold Exceeded" ban for the whole client IP).
+POLITE_INTERVAL_S = 0.25
+
 #: us-gaap concept tags per FundamentalData field; first tag found wins.
 _CONCEPTS: dict[str, tuple[str, ...]] = {
     "total_assets": ("Assets",),
@@ -77,6 +81,7 @@ class EdgarClient:
         self._http = HttpClient(
             {"User-Agent": user_agent, "Accept": "application/json"},
             transport=transport,
+            min_interval=POLITE_INTERVAL_S,
             sleeper=sleeper,
         )
         self._cik_by_ticker: dict[str, int] | None = None

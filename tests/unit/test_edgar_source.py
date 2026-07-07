@@ -159,6 +159,19 @@ def test_ticker_map_fetched_once_across_calls() -> None:
     assert sum("company_tickers" in u for u, _ in calls) == 1
 
 
+def test_polite_delay_between_requests() -> None:
+    # SEC fair-access: consecutive requests must be spaced out (rate-threshold 403s ban
+    # the client for ~10 minutes). The sleeper is called between requests, never before
+    # the first one.
+    transport, calls = _transport_factory()
+    naps: list[float] = []
+    client = EdgarClient("test-agent test@example.com", transport=transport, sleeper=naps.append)
+    client.get_fundamentals(["AAPL"], date(2026, 1, 1), date(2026, 6, 30))
+    assert len(calls) == 2  # ticker map + companyfacts
+    assert len(naps) == 1  # one polite nap between them
+    assert all(n > 0 for n in naps)
+
+
 def test_end_before_start_raises() -> None:
     transport, _ = _transport_factory()
     client = EdgarClient("test-agent test@example.com", transport=transport)

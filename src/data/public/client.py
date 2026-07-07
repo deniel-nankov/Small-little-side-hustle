@@ -47,6 +47,7 @@ class HttpClient:
         transport: Transport | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         backoff_base: float = DEFAULT_BACKOFF_BASE,
+        min_interval: float = 0.0,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         """Initialize the client.
@@ -56,12 +57,16 @@ class HttpClient:
             transport: Optional injected transport (for tests); defaults to urllib.
             max_retries: Total attempts for retryable statuses.
             backoff_base: Base seconds for exponential backoff (``base * 2**attempt``).
+            min_interval: Polite delay (seconds) slept before every request after the
+                first — for feeds with fair-access rate rules (SEC EDGAR).
             sleeper: Sleep function (injectable so tests don't actually wait).
         """
         self._headers = headers
         self._transport = transport or self._urllib_transport
         self._max_retries = max_retries
         self._backoff_base = backoff_base
+        self._min_interval = min_interval
+        self._made_request = False
         self._sleep = sleeper
 
     @staticmethod
@@ -87,6 +92,10 @@ class HttpClient:
         Raises:
             PublicAPIError: on non-2xx (after exhausting retries on transient statuses).
         """
+        if self._made_request and self._min_interval > 0:
+            self._sleep(self._min_interval)
+        self._made_request = True
+
         last_status = 0
         last_body = b""
         for attempt in range(self._max_retries):
