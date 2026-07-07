@@ -27,6 +27,11 @@ CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 #: Yahoo rejects default urllib UAs; a plain browser UA is required.
 _UA = "Mozilla/5.0 (research; yale-alpha-fund)"
 
+#: Statuses meaning "no data for this ticker/range" (recent IPO, delisting, bad symbol)
+#: — skip the ticker; anything else (auth, server errors) stays fatal. Status 0 is the
+#: chart-level error payload raised by :meth:`YahooPriceClient._parse_chart`.
+_SKIPPABLE_STATUS = frozenset({0, 400, 404})
+
 
 class YahooPriceClient:
     """Fetches daily bars from Yahoo Finance and returns validated :class:`PriceData`."""
@@ -59,10 +64,13 @@ class YahooPriceClient:
 
         Returns:
             A list of :class:`PriceData`; days Yahoo reports as null (halts) are skipped.
+            Tickers with no data for the range (recent IPOs, delistings — HTTP 400/404 or
+            a chart-level error payload) contribute nothing and are logged, so one bad
+            name never aborts a wide universe.
 
         Raises:
             ValueError: if ``end`` precedes ``start``.
-            PublicAPIError: on HTTP failure or a chart-level error payload.
+            PublicAPIError: on real HTTP failures (auth, exhausted-retry server errors).
         """
         if end < start:
             raise ValueError(f"end ({end}) precedes start ({start})")
@@ -76,8 +84,13 @@ class YahooPriceClient:
                 f"{CHART_URL.format(ticker=ticker.upper())}"
                 f"?period1={period1}&period2={period2}&interval=1d&events=div%2Csplit"
             )
-            payload = json.loads(self._http.get_bytes(url))
-            out.extend(self._parse_chart(ticker, payload, start, end))
+            try:
+                payload = json.loads(self._http.get_bytes(url))
+                out.extend(self._parse_chart(ticker, payload, start, end))
+            except PublicAPIError as exc:
+                if exc.status not in _SKIPPABLE_STATUS:
+                    raise
+                _log.warning("yahoo.ticker_skipped", ticker=ticker, status=exc.status)
         _log.debug("yahoo.get_prices", tickers=len(tickers), records=len(out))
         return out
 
