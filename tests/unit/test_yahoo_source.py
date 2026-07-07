@@ -154,15 +154,14 @@ def test_empty_result_returns_empty() -> None:
     ) == []
 
 
-def test_chart_error_payload_raises() -> None:
+def test_chart_error_payload_skips_that_ticker() -> None:
     body = json.dumps(
         {"chart": {"result": None, "error": {"code": "Not Found", "description": "No data"}}}
     ).encode()
     transport, _ = _canned(200, body)
-    with pytest.raises(PublicAPIError, match="Not Found"):
-        YahooPriceClient(transport=transport).get_prices(
-            ["ZZZZ"], date(2026, 3, 30), date(2026, 3, 31)
-        )
+    assert YahooPriceClient(transport=transport).get_prices(
+        ["ZZZZ"], date(2026, 3, 30), date(2026, 3, 31)
+    ) == []
 
 
 def test_end_before_start_raises() -> None:
@@ -173,10 +172,51 @@ def test_end_before_start_raises() -> None:
         )
 
 
-def test_http_error_raises_public_api_error() -> None:
-    transport, _ = _canned(404, b"not found")
-    with pytest.raises(PublicAPIError, match="404"):
-        YahooPriceClient(transport=transport).get_prices(
+def test_ticker_without_data_for_range_is_skipped_not_fatal() -> None:
+    # Seen live: a recent IPO in a 200-name universe 400s with "Data doesn't exist for
+    # startDate..." and killed the whole run. Missing data for one ticker must skip that
+    # ticker (with a warning), never abort the universe.
+    no_data = json.dumps(
+        {
+            "chart": {
+                "result": None,
+                "error": {
+                    "code": "Bad Request",
+                    "description": "Data doesn't exist for startDate = 1719792000",
+                },
+            }
+        }
+    ).encode()
+
+    def transport(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+        if "/NEWIPO?" in url:
+            return 400, no_data
+        return 200, _TWO_DAYS
+
+    bars = YahooPriceClient(transport=transport).get_prices(
+        ["NEWIPO", "AAPL"], date(2026, 3, 30), date(2026, 3, 31)
+    )
+    assert sorted({b.ticker for b in bars}) == ["AAPL"]
+    assert len(bars) == 2
+
+
+def test_unknown_symbol_404_is_skipped_not_fatal() -> None:
+    def transport(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+        if "/GONE?" in url:
+            return 404, b'{"chart":{"result":null,"error":{"code":"Not Found"}}}'
+        return 200, _TWO_DAYS
+
+    bars = YahooPriceClient(transport=transport).get_prices(
+        ["GONE", "AAPL"], date(2026, 3, 30), date(2026, 3, 31)
+    )
+    assert sorted({b.ticker for b in bars}) == ["AAPL"]
+
+
+def test_server_error_is_still_fatal() -> None:
+    # Only missing-data statuses are skippable; real failures must abort loudly.
+    transport, _ = _canned(500, b"boom")
+    with pytest.raises(PublicAPIError, match="500"):
+        YahooPriceClient(transport=transport, sleeper=lambda _: None).get_prices(
             ["AAPL"], date(2026, 3, 30), date(2026, 3, 31)
         )
 

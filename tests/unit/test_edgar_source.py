@@ -212,6 +212,21 @@ def test_top_tickers_shares_the_cached_listing_with_cik_lookup() -> None:
     assert sum("company_tickers" in u for u, _ in calls) == 1  # one fetch total
 
 
+def test_ticker_without_companyfacts_is_skipped_not_fatal() -> None:
+    # The SEC listing includes trusts/funds with no companyfacts JSON (404). In a wide
+    # universe one such entry must not abort the whole fetch.
+    def transport(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+        if "company_tickers" in url:
+            return 200, _MULTI_TICKERS_JSON
+        if "0000789019" in url:  # MSFT's CIK -> pretend no facts exist
+            return 404, b"not found"
+        return 200, _facts_body()
+
+    client = EdgarClient("test-agent test@example.com", transport=transport)
+    rows = client.get_fundamentals(["AAPL", "MSFT"], date(2026, 1, 1), date(2026, 6, 30))
+    assert sorted({r.ticker for r in rows}) == ["AAPL"]
+
+
 def test_polite_delay_between_requests() -> None:
     # SEC fair-access: consecutive requests must be spaced out (rate-threshold 403s ban
     # the client for ~10 minutes). The sleeper is called between requests, never before

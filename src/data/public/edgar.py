@@ -169,7 +169,15 @@ class EdgarClient:
         out: list[FundamentalData] = []
         for ticker in tickers:
             cik = self.cik_for(ticker)
-            facts = json.loads(self._http.get_bytes(FACTS_URL.format(cik=cik)))
+            try:
+                facts = json.loads(self._http.get_bytes(FACTS_URL.format(cik=cik)))
+            except PublicAPIError as exc:
+                # The SEC listing includes trusts/funds with no companyfacts JSON; one
+                # such entry must not abort a wide universe. Real failures stay fatal.
+                if exc.status != 404:
+                    raise
+                _log.warning("edgar.ticker_skipped", ticker=ticker, cik=cik, status=404)
+                continue
             gaap: dict[str, Any] = facts.get("facts", {}).get("us-gaap", {})
             out.extend(self._rows_for(ticker, gaap, start, end))
         _log.debug("edgar.get_fundamentals", tickers=len(tickers), records=len(out))
