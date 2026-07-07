@@ -8,7 +8,7 @@
 pydantic==2.13.4
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
-structlog==24.4.0
+structlog==26.1.0
 
 # --- Numerics / data handling ---
 numpy==2.2.1
