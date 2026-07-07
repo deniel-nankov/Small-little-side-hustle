@@ -9,7 +9,8 @@ import pytest
 from src.data.contracts.schemas import BacktestResult
 from src.data.source.fixture import FixtureSource
 from src.monitoring.audit import AuditLog
-from src.pipeline.real_backtest import run_fundamental_backtest
+from src.pipeline.real_backtest import run_fundamental_backtest, run_train_test_backtest
+from src.signals.validation.splits import make_train_test_split
 from src.utils.integrity import verify_sidecar
 
 _TICKERS = [f"T{i:02d}" for i in range(8)]
@@ -65,3 +66,23 @@ def test_pipeline_raises_when_no_scores_computable() -> None:
 def test_score_every_reduces_score_dates() -> None:
     sparse = run_fundamental_backtest(FixtureSource(), _TICKERS, _START, _END, score_every=20)
     assert isinstance(sparse, BacktestResult)
+
+
+def test_train_test_backtest_respects_split_windows(tmp_path: Path) -> None:
+    split = make_train_test_split(date(2025, 1, 6), _END, test_fraction=0.4)
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    train_result, test_result = run_train_test_backtest(
+        FixtureSource(), _TICKERS, split, audit=audit, out_dir=tmp_path
+    )
+    # Each side is evaluated strictly inside its own window (PIT-pinned per window).
+    assert train_result.start_date >= split.train_start
+    assert train_result.end_date <= split.train_end
+    assert test_result.start_date >= split.test_start
+    assert test_result.end_date <= split.test_end
+    # Both verdicts recorded on the tamper-evident trail.
+    assert [e["event"] for e in audit.entries()].count("backtest.completed") == 2
+    assert audit.verify() is True
+    # Two sidecarred artifacts (one per window).
+    artifacts = sorted(tmp_path.glob("*.json"))
+    assert len(artifacts) == 2
+    assert all(verify_sidecar(a) for a in artifacts)
