@@ -25,6 +25,7 @@ from src.signals.construction.fundamental_factors import (
     compute_fundamental_factors,
 )
 from src.signals.validation.backtest_runner import run_backtest
+from src.signals.validation.splits import TrainTestSplit
 from src.utils.integrity import write_with_sidecar
 from src.utils.pit import PITDataSource, as_of
 
@@ -118,3 +119,65 @@ def run_fundamental_backtest(
         sharpe=round(result.sharpe_ratio, 2),
     )
     return result
+
+
+def run_train_test_backtest(
+    source: DataSource,
+    tickers: Sequence[str],
+    split: TrainTestSplit,
+    *,
+    score_every: int = DEFAULT_SCORE_EVERY,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    n_trials: int = 1,
+    audit: AuditLog | None = None,
+    out_dir: Path | None = None,
+) -> tuple[BacktestResult, BacktestResult]:
+    """Run the fundamental backtest separately on the train and test windows.
+
+    Out-of-sample discipline comes structurally: each window is a fully independent
+    :func:`run_fundamental_backtest` call whose :class:`PITDataSource` is pinned at that
+    window's OWN end — the train run physically cannot fetch a single test-window bar,
+    and the embargo gap in ``split`` keeps train forward-returns out of the test window.
+
+    Args:
+        source: Any data source; wrapped per window.
+        tickers: Universe to score.
+        split: Validated chronological windows (see :func:`make_train_test_split`).
+        score_every: Compute scores every N-th trading day.
+        lookback_days: Fundamentals lookback before each window start.
+        n_trials: Candidate signals tried (multiple-testing guard, applied to both runs).
+        audit: Optional audit log; both verdicts are recorded.
+        out_dir: Optional artifact directory (one sidecarred JSON per window).
+
+    Returns:
+        ``(train_result, test_result)``.
+    """
+    _log.info(
+        "pipeline.train_test_split",
+        train=f"{split.train_start}..{split.train_end}",
+        test=f"{split.test_start}..{split.test_end}",
+        embargo_days=split.embargo_days,
+    )
+    train_result = run_fundamental_backtest(
+        source,
+        tickers,
+        split.train_start,
+        split.train_end,
+        score_every=score_every,
+        lookback_days=lookback_days,
+        n_trials=n_trials,
+        audit=audit,
+        out_dir=out_dir,
+    )
+    test_result = run_fundamental_backtest(
+        source,
+        tickers,
+        split.test_start,
+        split.test_end,
+        score_every=score_every,
+        lookback_days=lookback_days,
+        n_trials=n_trials,
+        audit=audit,
+        out_dir=out_dir,
+    )
+    return train_result, test_result
