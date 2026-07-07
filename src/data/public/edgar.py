@@ -84,7 +84,14 @@ class EdgarClient:
             min_interval=POLITE_INTERVAL_S,
             sleeper=sleeper,
         )
-        self._cik_by_ticker: dict[str, int] | None = None
+        self._listing: list[dict[str, Any]] | None = None
+
+    def _get_listing(self) -> list[dict[str, Any]]:
+        """Return the SEC company/ticker listing (fetched once, order preserved)."""
+        if self._listing is None:
+            raw = json.loads(self._http.get_bytes(TICKERS_URL))
+            self._listing = [raw[key] for key in sorted(raw, key=int)]
+        return self._listing
 
     def cik_for(self, ticker: str) -> int:
         """Return the SEC CIK for ``ticker`` (ticker map fetched once, then cached).
@@ -98,15 +105,45 @@ class EdgarClient:
         Raises:
             PublicAPIError: if the ticker is unknown to EDGAR.
         """
-        if self._cik_by_ticker is None:
-            listing = json.loads(self._http.get_bytes(TICKERS_URL))
-            self._cik_by_ticker = {
-                row["ticker"].upper(): int(row["cik_str"]) for row in listing.values()
-            }
-        cik = self._cik_by_ticker.get(ticker.upper())
-        if cik is None:
-            raise PublicAPIError(404, f"ticker {ticker.upper()} not found on EDGAR".encode())
-        return cik
+        wanted = ticker.upper()
+        for row in self._get_listing():
+            if row["ticker"].upper() == wanted:
+                return int(row["cik_str"])
+        raise PublicAPIError(404, f"ticker {wanted} not found on EDGAR".encode())
+
+    def top_tickers(self, n: int) -> list[str]:
+        """Return the first ``n`` tickers from SEC's listing (~largest companies).
+
+        The SEC serves ``company_tickers.json`` ordered roughly by market cap, so the
+        head of the file is a usable large-cap universe with no extra data source.
+        Secondary share classes (same CIK, e.g. GOOG next to GOOGL) are collapsed to
+        the first-listed ticker.
+
+        NOTE: this is TODAY'S listing — applying it to a historical backtest carries
+        survivorship bias (companies that shrank or delisted are missing).
+
+        Args:
+            n: How many tickers to return (> 0).
+
+        Returns:
+            Up to ``n`` uppercase tickers in listing order.
+
+        Raises:
+            ValueError: if ``n`` is not positive.
+        """
+        if n <= 0:
+            raise ValueError(f"n must be > 0, got {n}")
+        out: list[str] = []
+        seen_ciks: set[int] = set()
+        for row in self._get_listing():
+            cik = int(row["cik_str"])
+            if cik in seen_ciks:
+                continue
+            seen_ciks.add(cik)
+            out.append(row["ticker"].upper())
+            if len(out) == n:
+                break
+        return out
 
     def get_fundamentals(
         self, tickers: Sequence[str], start: date, end: date
