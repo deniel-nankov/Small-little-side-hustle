@@ -7,7 +7,7 @@
 # --- Core: data contracts, config, logging ---
 pydantic==2.13.4
 pydantic-settings==2.7.1
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 structlog==24.4.0
 
 # --- Numerics / data handling ---
