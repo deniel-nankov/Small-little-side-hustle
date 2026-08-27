@@ -228,7 +228,7 @@ def test_point_in_time_flag_is_set() -> None:
 # ------------------------------------------------------------------ unimplemented yet
 
 
-@pytest.mark.parametrize("method", ["get_estimates", "get_fundamentals", "get_ownership"])
+@pytest.mark.parametrize("method", ["get_ownership"])
 def test_pending_endpoints_raise_not_implemented(method: str) -> None:
     src, _ = _source()
     with pytest.raises(NotImplementedError):
@@ -256,3 +256,228 @@ def test_wrds_profile_requires_a_token() -> None:
     assert cfg.required_for_runtime() == ["wrds_api_token"]
     with pytest.raises(MissingCredentialError, match="wrds_api_token"):
         cfg.validate_for_runtime()
+
+
+# ============================================================ Compustat fundamentals
+
+
+def _fq(
+    datadate: str,
+    rdq: str | None,
+    fyearq: int,
+    fqtr: int,
+    *,
+    atq: float = 1000.0,
+    niq: float = 50.0,
+    oancfy: float | None = 100.0,
+    revtq: float = 500.0,
+    **kw: object,
+) -> dict:
+    return {
+        "tic": "ORCL",
+        "datadate": datadate,
+        "rdq": rdq,
+        "fyearq": fyearq,
+        "fqtr": fqtr,
+        "atq": atq,
+        "niq": niq,
+        "oancfy": oancfy,
+        "revtq": revtq,
+        "datafmt": kw.get("datafmt", "STD"),
+        "indfmt": kw.get("indfmt", "INDL"),
+        "consol": kw.get("consol", "C"),
+        "popsrc": kw.get("popsrc", "D"),
+        "curcdq": kw.get("curcdq", "USD"),
+    }
+
+
+def _fund_source(rows: list[dict]) -> WRDSSource:
+    client = _FakeClient({"crsp.stocknames": _STOCKNAMES, "comp.fundq": rows})
+    return WRDSSource(client)  # type: ignore[arg-type]
+
+
+def test_fundamentals_use_rdq_as_the_point_in_time_date() -> None:
+    # rdq (when the company REPORTED) is the PIT date. datadate is the fiscal period
+    # end — using it would leak ~10 days of hindsight into every backtest.
+    src = _fund_source([_fq("2026-02-28", "2026-03-10", 2025, 3)])
+    row = src.get_fundamentals(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))[0]
+    assert row.report_date == date(2026, 3, 10)
+    assert row.fiscal_year == 2025
+    assert row.fiscal_quarter == 3
+    assert row.is_point_in_time is True
+
+
+def test_ytd_operating_cash_flow_is_differenced_into_a_quarterly_figure() -> None:
+    # THE Compustat trap: oancfy is cumulative within the fiscal year and resets each
+    # year. Oracle FY2025: 8,140 -> 10,206 -> 17,357 -> 31,977. Quarterly Q2 is the
+    # DIFFERENCE (2,066), not the reported 10,206.
+    rows = [
+        _fq("2025-08-31", "2025-09-09", 2025, 1, oancfy=8140.0),
+        _fq("2025-11-30", "2025-12-10", 2025, 2, oancfy=10206.0),
+        _fq("2026-02-28", "2026-03-10", 2025, 3, oancfy=17357.0),
+        _fq("2026-05-31", "2026-06-10", 2025, 4, oancfy=31977.0),
+    ]
+    src = _fund_source(rows)
+    got = sorted(
+        src.get_fundamentals(["ORCL"], date(2025, 1, 1), date(2026, 12, 31)),
+        key=lambda r: r.fiscal_quarter,
+    )
+    assert [round(r.operating_cash_flow) for r in got] == [8140, 2066, 7151, 14620]
+
+
+def test_ytd_resets_across_fiscal_years() -> None:
+    # Q1 of a new fiscal year must NOT be differenced against the prior year's Q4.
+    rows = [
+        _fq("2025-05-31", "2025-06-11", 2024, 4, oancfy=20821.0),
+        _fq("2025-08-31", "2025-09-09", 2025, 1, oancfy=8140.0),
+    ]
+    src = _fund_source(rows)
+    got = {r.fiscal_year: r.operating_cash_flow for r in
+           src.get_fundamentals(["ORCL"], date(2025, 1, 1), date(2026, 1, 1))}
+    assert round(got[2025]) == 8140  # not 8140 - 20821 = negative nonsense
+
+
+def test_rows_without_rdq_are_skipped() -> None:
+    # 8 live Oracle rows have a null rdq — with no PIT date they are unusable.
+    src = _fund_source([_fq("2026-02-28", None, 2025, 3)])
+    assert src.get_fundamentals(["ORCL"], date(2020, 1, 1), date(2027, 1, 1)) == []
+
+
+def test_non_standard_formats_are_filtered_out() -> None:
+    # Restated/summary rows would double-count a period.
+    rows = [
+        _fq("2026-02-28", "2026-03-10", 2025, 3),
+        _fq("2026-02-28", "2026-03-10", 2025, 3, datafmt="SUMM_STD"),
+        _fq("2026-02-28", "2026-03-10", 2025, 3, indfmt="FS"),
+    ]
+    src = _fund_source(rows)
+    assert len(src.get_fundamentals(["ORCL"], date(2020, 1, 1), date(2027, 1, 1))) == 1
+
+
+def test_fundamentals_are_filtered_by_report_date_window() -> None:
+    rows = [
+        _fq("2025-08-31", "2025-09-09", 2025, 1),
+        _fq("2026-02-28", "2026-03-10", 2025, 3),
+    ]
+    src = _fund_source(rows)
+    got = src.get_fundamentals(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))
+    assert [r.report_date for r in got] == [date(2026, 3, 10)]
+
+
+def test_rows_with_unusable_values_are_skipped() -> None:
+    # The contract requires total_assets > 0 and revenue >= 0; never fabricate.
+    rows = [
+        _fq("2026-02-28", "2026-03-10", 2025, 3, atq=0.0),
+        _fq("2026-05-31", "2026-06-10", 2025, 4, revtq=-1.0),
+        {**_fq("2026-08-31", "2026-09-10", 2026, 1), "niq": None},
+    ]
+    src = _fund_source(rows)
+    assert src.get_fundamentals(["ORCL"], date(2020, 1, 1), date(2027, 1, 1)) == []
+
+
+def test_fundamentals_reject_inverted_window() -> None:
+    src = _fund_source([])
+    with pytest.raises(ValueError, match="precedes"):
+        src.get_fundamentals(["ORCL"], date(2026, 2, 1), date(2026, 1, 1))
+
+
+# ================================================== IBES individual estimates (TrueBeats)
+
+
+def _est(
+    anndats: str,
+    value: float,
+    *,
+    analys: float = 110260.0,
+    estimator: float = 210.0,
+    fpi: str = "6",
+    fpedats: str = "2026-08-31",
+    measure: str = "EPS",
+    curr: str | None = None,
+) -> dict:
+    return {
+        "ticker": "ORCL",
+        "oftic": "ORCL",
+        "cname": "ORACLE",
+        "analys": analys,
+        "estimator": estimator,
+        "anndats": anndats,
+        "actdats": anndats,
+        "fpi": fpi,
+        "measure": measure,
+        "value": value,
+        "fpedats": fpedats,
+        "curr": curr,
+        "usfirm": 1,
+    }
+
+
+def _est_source(rows: list[dict]) -> WRDSSource:
+    client = _FakeClient({"crsp.stocknames": _STOCKNAMES, "ibes.det_epsus": rows})
+    return WRDSSource(client)  # type: ignore[arg-type]
+
+
+def test_estimates_use_anndats_as_the_point_in_time_date() -> None:
+    src = _est_source([_est("2026-05-12", 2.395)])
+    e = src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))[0]
+    assert e.estimate_date == date(2026, 5, 12)  # when the analyst PUBLISHED it
+    assert e.is_point_in_time is True
+    assert e.value == 2.395
+
+
+def test_estimate_identifies_analyst_and_broker_individually() -> None:
+    # Individual-analyst granularity is the whole point: it lets us weight by each
+    # analyst's track record rather than using a blended consensus.
+    src = _est_source([_est("2026-05-12", 2.395, analys=110260.0, estimator=210.0)])
+    e = src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))[0]
+    assert e.analyst_id == "110260"  # not "110260.0"
+    assert e.broker == "210"
+
+
+def test_fiscal_period_is_derived_from_the_forecast_period_end() -> None:
+    src = _est_source([_est("2026-05-12", 2.4, fpedats="2026-08-31")])
+    e = src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))[0]
+    assert (e.fiscal_year, e.fiscal_quarter) == (2026, 3)  # August -> Q3
+
+
+def test_only_quarterly_horizons_are_returned() -> None:
+    # fpi 6..9 are the quarterly forecast periods; annual/long-term horizons (1, 2, P)
+    # cannot be expressed by a contract that requires a fiscal QUARTER.
+    rows = [
+        _est("2026-05-12", 2.4, fpi="6"),
+        _est("2026-05-12", 7.09, fpi="1"),  # FY1 annual
+        _est("2026-05-12", 2.4, fpi="P"),  # long-term growth
+    ]
+    src = _est_source(rows)
+    got = src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))
+    assert len(got) == 1
+    assert got[0].value == 2.4
+
+
+def test_missing_currency_defaults_to_usd_on_the_us_file() -> None:
+    src = _est_source([_est("2026-05-12", 2.4, curr=None)])
+    assert src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))[0].currency == "USD"
+
+
+def test_estimates_are_filtered_by_announce_date_window() -> None:
+    rows = [_est("2025-01-05", 1.0), _est("2026-05-12", 2.4)]
+    src = _est_source(rows)
+    got = src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))
+    assert [e.estimate_date for e in got] == [date(2026, 5, 12)]
+
+
+def test_unusable_estimate_rows_are_skipped() -> None:
+    rows = [
+        {**_est("2026-05-12", 2.4), "value": None},
+        {**_est("2026-05-12", 2.4), "anndats": None},
+        {**_est("2026-05-12", 2.4), "fpedats": None},
+        {**_est("2026-05-12", 2.4), "analys": None},
+    ]
+    src = _est_source(rows)
+    assert src.get_estimates(["ORCL"], date(2026, 1, 1), date(2026, 12, 31)) == []
+
+
+def test_estimates_reject_inverted_window() -> None:
+    src = _est_source([])
+    with pytest.raises(ValueError, match="precedes"):
+        src.get_estimates(["ORCL"], date(2026, 2, 1), date(2026, 1, 1))
