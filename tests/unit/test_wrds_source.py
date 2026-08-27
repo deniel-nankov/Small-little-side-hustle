@@ -481,3 +481,50 @@ def test_estimates_reject_inverted_window() -> None:
     src = _est_source([])
     with pytest.raises(ValueError, match="precedes"):
         src.get_estimates(["ORCL"], date(2026, 2, 1), date(2026, 1, 1))
+
+
+# ================================================================== IBES realized actuals
+
+
+def _actual(anndats: str | None, pends: str, value: float, pdicity: str = "QTR") -> dict:
+    return {
+        "ticker": "ORCL",
+        "measure": "EPS",
+        "pends": pends,
+        "anndats": anndats,
+        "value": value,
+        "pdicity": pdicity,
+        "curr_act": "USD",
+    }
+
+
+def _actuals_source(rows: list[dict]) -> WRDSSource:
+    client = _FakeClient({"crsp.stocknames": _STOCKNAMES, "ibes.actu_epsus": rows})
+    return WRDSSource(client)  # type: ignore[arg-type]
+
+
+def test_actuals_use_announcement_date_as_point_in_time() -> None:
+    src = _actuals_source([_actual("2026-03-10", "2026-02-28", 1.79)])
+    a = src.get_actuals(["ORCL"], date(2026, 1, 1), date(2026, 12, 31))[0]
+    assert a.announced_date == date(2026, 3, 10)  # when the market learned it
+    assert (a.fiscal_year, a.fiscal_quarter) == (2026, 1)
+    assert a.value == 1.79
+    assert a.is_point_in_time is True
+
+
+def test_actuals_without_an_announcement_date_are_unusable() -> None:
+    # Live: old IBES rows carry a null anndats — with no publication date they cannot be
+    # used point-in-time without risking hindsight.
+    src = _actuals_source([_actual(None, "1985-11-30", 0.10)])
+    assert src.get_actuals(["ORCL"], date(1980, 1, 1), date(2027, 1, 1)) == []
+
+
+def test_annual_actuals_are_excluded() -> None:
+    src = _actuals_source([_actual("2026-03-10", "2026-02-28", 1.79, pdicity="ANN")])
+    assert src.get_actuals(["ORCL"], date(2026, 1, 1), date(2026, 12, 31)) == []
+
+
+def test_actuals_reject_inverted_window() -> None:
+    src = _actuals_source([])
+    with pytest.raises(ValueError, match="precedes"):
+        src.get_actuals(["ORCL"], date(2026, 2, 1), date(2026, 1, 1))
