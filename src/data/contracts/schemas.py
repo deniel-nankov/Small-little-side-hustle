@@ -32,6 +32,7 @@ class DataSourceName(str, Enum):
     backup = "backup"
     fixture = "fixture"
     yahoo = "yahoo"  # free daily prices (keyless chart API, true adjusted close)
+    crsp = "crsp"  # CRSP via WRDS: survivorship-bias-free institutional prices
     edgar = "edgar"  # free SEC point-in-time fundamentals
 
 

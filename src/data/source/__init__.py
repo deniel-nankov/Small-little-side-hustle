@@ -29,6 +29,10 @@ def get_data_source(cfg: Settings | None = None) -> DataSource:
         from src.data.factset.source import FactSetSource  # local import (needs credentials)
 
         return FactSetSource.from_settings(cfg)
+    if cfg.data_source is DataSourceKind.wrds:
+        from src.data.wrds.source import WRDSSource  # local import (needs a token)
+
+        return WRDSSource.from_settings(cfg)
     if cfg.data_source is DataSourceKind.public:
         from src.data.public.source import PublicSource  # local import (network-backed)
 

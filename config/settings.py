@@ -40,6 +40,7 @@ class DataSourceKind(str, Enum):
     fixture = "fixture"
     factset = "factset"
     public = "public"  # free real data: Yahoo prices + EDGAR fundamentals (no credentials)
+    wrds = "wrds"  # institutional: CRSP survivorship-bias-free prices (needs WRDS_API_TOKEN)
 
 
 class MissingCredentialError(RuntimeError):
@@ -110,6 +111,8 @@ class Settings(BaseSettings):
         required: list[str] = []
         if self.data_source is DataSourceKind.factset:
             required += ["factset_client_id", "factset_client_secret"]
+        if self.data_source is DataSourceKind.wrds:
+            required += ["wrds_api_token"]
         if self.is_production:
             required += [
                 "factset_client_id",
