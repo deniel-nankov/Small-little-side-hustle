@@ -26,6 +26,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from src.data.contracts.schemas import (
+    ActualData,
     DataSourceName,
     EstimateData,
     FundamentalData,
@@ -49,6 +50,7 @@ STOCKNAMES_TABLE = "crsp.stocknames"
 DSF_TABLE = "crsp.dsf"
 FUNDQ_TABLE = "comp.fundq"
 DET_EPSUS_TABLE = "ibes.det_epsus"
+ACTU_EPSUS_TABLE = "ibes.actu_epsus"
 
 #: IBES forecast-period indicators for the four quarterly horizons (Q1..Q4).
 QUARTERLY_FPI = frozenset({"6", "7", "8", "9"})
@@ -258,6 +260,54 @@ class WRDSSource(DataSource):
                 )
             )
         return bars
+
+    def get_actuals(self, tickers: Sequence[str], start: date, end: date) -> list[ActualData]:
+        """Return realized quarterly EPS announced within ``[start, end]``.
+
+        Not part of the :class:`DataSource` contract — it is IBES-specific and exists to
+        score analyst accuracy point-in-time. ``anndats`` (the announcement date) is the
+        moment the figure became public; rows without one cannot be used point-in-time.
+
+        Args:
+            tickers: US ticker symbols.
+            start: First announcement date (inclusive).
+            end: Last announcement date (inclusive).
+
+        Returns:
+            Validated realized EPS figures.
+
+        Raises:
+            ValueError: if ``end`` precedes ``start``.
+        """
+        if end < start:
+            raise ValueError(f"end ({end}) precedes start ({start})")
+        out: list[ActualData] = []
+        for ticker in tickers:
+            for row in self._client.get_rows(ACTU_EPSUS_TABLE, filters={"ticker": ticker.upper()}):
+                if row.get("pdicity") != "QTR" or row.get("measure") != "EPS":
+                    continue
+                announced, period_end = _to_date(row.get("anndats")), _to_date(row.get("pends"))
+                value = _to_float(row.get("value"))
+                if (
+                    announced is None  # unknowable publication date -> unusable for PIT
+                    or period_end is None
+                    or value is None
+                    or not (start <= announced <= end)
+                ):
+                    continue
+                out.append(
+                    ActualData(
+                        ticker=ticker,
+                        fiscal_year=period_end.year,
+                        fiscal_quarter=(period_end.month - 1) // 3 + 1,
+                        metric=Metric.eps,
+                        value=value,
+                        announced_date=announced,
+                        is_point_in_time=True,
+                    )
+                )
+        _log.info("wrds.get_actuals", tickers=len(tickers), records=len(out))
+        return out
 
     # ------------------------------------------------------------ not yet implemented
     def get_estimates(self, tickers: Sequence[str], start: date, end: date) -> list[EstimateData]:

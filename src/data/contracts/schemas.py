@@ -111,6 +111,24 @@ class EstimateData(_Contract):
         return v.upper()
 
 
+# --------------------------------------------------------------------- realized actuals
+class ActualData(_Contract):
+    """A realized (reported) figure for one ticker and fiscal period."""
+
+    ticker: str = Field(min_length=1, max_length=12)
+    fiscal_year: int = Field(ge=1990, le=2100)
+    fiscal_quarter: int = Field(ge=1, le=4)
+    metric: Metric
+    value: float
+    announced_date: date  # point-in-time: when the figure became public
+    is_point_in_time: bool
+
+    @field_validator("ticker")
+    @classmethod
+    def _uppercase_ticker(cls, v: str) -> str:
+        return v.upper()
+
+
 # ---------------------------------------------------------------------- signal score
 class SignalScore(_Contract):
     """A signal's output for one ticker on one date."""
