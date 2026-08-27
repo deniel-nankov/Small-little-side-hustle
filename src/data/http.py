@@ -1,4 +1,4 @@
-"""Shared HTTP plumbing for the free public data sources (EDGAR, Stooq).
+"""Shared HTTP plumbing for every network-backed data source (EDGAR, Yahoo, WRDS).
 
 Mirrors the FactSet client's discipline: https-only, retry with exponential backoff on
 transient statuses, typed errors, and an injectable ``transport`` so every caller is
@@ -27,18 +27,18 @@ DEFAULT_BACKOFF_BASE = 0.5
 Transport = Callable[[str, dict[str, str]], tuple[int, bytes]]
 
 
-class PublicAPIError(RuntimeError):
+class DataAPIError(RuntimeError):
     """Raised on a non-retryable or exhausted-retry public-API error."""
 
     def __init__(self, status: int, body: bytes) -> None:
         """Capture the HTTP status and a truncated body for the error message."""
         self.status = status
         self.body = body.decode("utf-8", "replace")[:500]
-        super().__init__(f"public API returned {status}: {self.body}")
+        super().__init__(f"data API returned {status}: {self.body}")
 
 
 class HttpClient:
-    """Thin, retrying, GET-only HTTP client for the free public data feeds."""
+    """Thin, retrying, GET-only HTTP client for the data feeds."""
 
     def __init__(
         self,
@@ -72,7 +72,7 @@ class HttpClient:
     @staticmethod
     def _urllib_transport(url: str, headers: dict[str, str]) -> tuple[int, bytes]:
         if not url.startswith("https://"):
-            raise PublicAPIError(0, f"refusing non-https URL: {url}".encode())
+            raise DataAPIError(0, f"refusing non-https URL: {url}".encode())
         request = urllib.request.Request(url, headers=headers)  # nosec B310 (https checked above)
         try:
             with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT) as response:  # nosec B310
@@ -90,7 +90,7 @@ class HttpClient:
             The raw response body on HTTP 200.
 
         Raises:
-            PublicAPIError: on non-2xx (after exhausting retries on transient statuses).
+            DataAPIError: on non-2xx (after exhausting retries on transient statuses).
         """
         if self._made_request and self._min_interval > 0:
             self._sleep(self._min_interval)
@@ -105,8 +105,8 @@ class HttpClient:
             last_status, last_body = status, body
             if status in RETRYABLE_STATUS and attempt < self._max_retries - 1:
                 delay = self._backoff_base * (2**attempt)
-                _log.warning("public.retry", status=status, attempt=attempt + 1, delay=delay)
+                _log.warning("http.retry", status=status, attempt=attempt + 1, delay=delay)
                 self._sleep(delay)
                 continue
             break
-        raise PublicAPIError(last_status, last_body)
+        raise DataAPIError(last_status, last_body)

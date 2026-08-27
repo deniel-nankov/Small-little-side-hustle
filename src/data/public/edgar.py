@@ -27,7 +27,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from src.data.contracts.schemas import FundamentalData
-from src.data.public.client import HttpClient, PublicAPIError, Transport
+from src.data.http import DataAPIError, HttpClient, Transport
 from src.monitoring.logger import get_logger
 
 if TYPE_CHECKING:
@@ -103,13 +103,13 @@ class EdgarClient:
             The integer CIK.
 
         Raises:
-            PublicAPIError: if the ticker is unknown to EDGAR.
+            DataAPIError: if the ticker is unknown to EDGAR.
         """
         wanted = ticker.upper()
         for row in self._get_listing():
             if row["ticker"].upper() == wanted:
                 return int(row["cik_str"])
-        raise PublicAPIError(404, f"ticker {wanted} not found on EDGAR".encode())
+        raise DataAPIError(404, f"ticker {wanted} not found on EDGAR".encode())
 
     def top_tickers(self, n: int) -> list[str]:
         """Return the first ``n`` tickers from SEC's listing (~largest companies).
@@ -162,7 +162,7 @@ class EdgarClient:
 
         Raises:
             ValueError: if ``end`` precedes ``start``.
-            PublicAPIError: on HTTP failure or unknown ticker.
+            DataAPIError: on HTTP failure or unknown ticker.
         """
         if end < start:
             raise ValueError(f"end ({end}) precedes start ({start})")
@@ -171,7 +171,7 @@ class EdgarClient:
             cik = self.cik_for(ticker)
             try:
                 facts = json.loads(self._http.get_bytes(FACTS_URL.format(cik=cik)))
-            except PublicAPIError as exc:
+            except DataAPIError as exc:
                 # The SEC listing includes trusts/funds with no companyfacts JSON; one
                 # such entry must not abort a wide universe. Real failures stay fatal.
                 if exc.status != 404:

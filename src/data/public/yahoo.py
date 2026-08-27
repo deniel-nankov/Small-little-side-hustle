@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from src.data.contracts.schemas import DataSourceName, PriceData
-from src.data.public.client import HttpClient, PublicAPIError, Transport
+from src.data.http import DataAPIError, HttpClient, Transport
 from src.monitoring.logger import get_logger
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ class YahooPriceClient:
 
         Raises:
             ValueError: if ``end`` precedes ``start``.
-            PublicAPIError: on real HTTP failures (auth, exhausted-retry server errors).
+            DataAPIError: on real HTTP failures (auth, exhausted-retry server errors).
         """
         if end < start:
             raise ValueError(f"end ({end}) precedes start ({start})")
@@ -87,7 +87,7 @@ class YahooPriceClient:
             try:
                 payload = json.loads(self._http.get_bytes(url))
                 out.extend(self._parse_chart(ticker, payload, start, end))
-            except PublicAPIError as exc:
+            except DataAPIError as exc:
                 if exc.status not in _SKIPPABLE_STATUS:
                     raise
                 _log.warning("yahoo.ticker_skipped", ticker=ticker, status=exc.status)
@@ -101,7 +101,7 @@ class YahooPriceClient:
         """Parse one chart payload into bars, skipping null (halted) days."""
         chart = payload.get("chart", {})
         if chart.get("error"):
-            raise PublicAPIError(0, json.dumps(chart["error"]).encode())
+            raise DataAPIError(0, json.dumps(chart["error"]).encode())
         results = chart.get("result") or []
         if not results:
             _log.warning("yahoo.no_data", ticker=ticker)
