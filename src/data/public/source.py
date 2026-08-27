@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         PriceData,
         SupplyChainLink,
     )
-    from src.data.public.client import Transport
+    from src.data.http import Transport
 
 
 class PublicSource(DataSource):

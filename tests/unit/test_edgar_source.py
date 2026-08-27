@@ -15,7 +15,7 @@ import json
 from datetime import date
 
 import pytest
-from src.data.public.client import PublicAPIError
+from src.data.http import DataAPIError
 from src.data.public.edgar import EdgarClient
 
 _TICKERS_JSON = json.dumps(
@@ -144,7 +144,7 @@ def test_filters_by_filed_date_window() -> None:
 def test_unknown_ticker_raises() -> None:
     transport, _ = _transport_factory()
     client = EdgarClient("test-agent test@example.com", transport=transport)
-    with pytest.raises(PublicAPIError, match="ZZZZ"):
+    with pytest.raises(DataAPIError, match="ZZZZ"):
         client.get_fundamentals(["ZZZZ"], date(2026, 1, 1), date(2026, 6, 30))
 
 

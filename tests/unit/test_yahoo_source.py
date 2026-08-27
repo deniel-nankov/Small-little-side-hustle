@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from src.data.contracts.schemas import DataSourceName
-from src.data.public.client import PublicAPIError
+from src.data.http import DataAPIError
 from src.data.public.yahoo import YahooPriceClient
 
 _GMTOFFSET = -14400  # US/Eastern during DST
@@ -215,7 +215,7 @@ def test_unknown_symbol_404_is_skipped_not_fatal() -> None:
 def test_server_error_is_still_fatal() -> None:
     # Only missing-data statuses are skippable; real failures must abort loudly.
     transport, _ = _canned(500, b"boom")
-    with pytest.raises(PublicAPIError, match="500"):
+    with pytest.raises(DataAPIError, match="500"):
         YahooPriceClient(transport=transport, sleeper=lambda _: None).get_prices(
             ["AAPL"], date(2026, 3, 30), date(2026, 3, 31)
         )
