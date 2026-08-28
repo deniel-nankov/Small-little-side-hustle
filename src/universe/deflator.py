@@ -47,7 +47,8 @@ def to_base_year_dollars(nominal: float, year: int) -> float:
             level would silently mis-size the universe.
     """
     if year not in CPI_U_ANNUAL:
-        raise ValueError(f"no CPI value for {year}; series covers {min(CPI_U_ANNUAL)}-{max(CPI_U_ANNUAL)}")
+        span = f"{min(CPI_U_ANNUAL)}-{max(CPI_U_ANNUAL)}"
+        raise ValueError(f"no CPI value for {year}; series covers {span}")
     return nominal * CPI_U_ANNUAL[BASE_YEAR] / CPI_U_ANNUAL[year]
 
 
@@ -67,6 +68,7 @@ def deflate_bounds(low: float, high: float, year: int) -> tuple[float, float]:
         ValueError: if the year is outside the embedded CPI series.
     """
     if year not in CPI_U_ANNUAL:
-        raise ValueError(f"no CPI value for {year}; series covers {min(CPI_U_ANNUAL)}-{max(CPI_U_ANNUAL)}")
+        span = f"{min(CPI_U_ANNUAL)}-{max(CPI_U_ANNUAL)}"
+        raise ValueError(f"no CPI value for {year}; series covers {span}")
     factor = CPI_U_ANNUAL[year] / CPI_U_ANNUAL[BASE_YEAR]
     return low * factor, high * factor
