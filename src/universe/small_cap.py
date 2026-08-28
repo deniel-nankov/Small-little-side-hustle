@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from src.monitoring.logger import get_logger
+from src.universe.deflator import BASE_YEAR, deflate_bounds
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -48,10 +49,15 @@ _DECILES = 10
 
 @dataclass(frozen=True)
 class UniverseSpec:
-    """Universe definition, fixed up front so nothing is tuned after seeing results."""
+    """Universe definition, fixed up front so nothing is tuned after seeing results.
 
-    min_decile: int = 6
-    max_decile: int = 8
+    Bounds are expressed in constant :data:`~src.universe.deflator.BASE_YEAR` dollars and
+    deflated to each formation year, so "small cap" means the same economic thing in 1990
+    and 2024. Decile bounds remain available for diagnostics but do not drive selection.
+    """
+
+    min_market_cap: float = 300e6  # in BASE_YEAR dollars
+    max_market_cap: float = 2e9  # in BASE_YEAR dollars
     min_price: float = 5.0
 
 
@@ -122,6 +128,8 @@ def select_universe(
     cross_section: Sequence[Mapping[str, Any]],
     share_codes: Mapping[int, int],
     spec: UniverseSpec,
+    *,
+    year: int = BASE_YEAR,
 ) -> list[UniverseMember]:
     """Select the universe from one date's cross-section.
 
@@ -130,11 +138,14 @@ def select_universe(
         share_codes: ``permno -> shrcd`` valid on that date. A permno absent from the map
             is EXCLUDED — an unknown share class is not an invitation to guess.
         spec: The universe definition (fixed in advance).
+        year: Formation year, used to deflate the market-cap bounds into that year's
+            nominal dollars so the universe holds a constant REAL size.
 
     Returns:
         Members sorted by market cap ascending.
     """
     breakpoints = nyse_breakpoints(cross_section)
+    low, high = deflate_bounds(spec.min_market_cap, spec.max_market_cap, year)
     members: list[UniverseMember] = []
     for row in cross_section:
         permno_raw = _to_float(row.get("permno"))
@@ -147,15 +158,17 @@ def select_universe(
             continue
         if abs(price) < spec.min_price:
             continue
-        decile = assign_decile(cap, breakpoints)
-        if spec.min_decile <= decile <= spec.max_decile:
-            members.append(UniverseMember(permno=permno, market_cap=cap, decile=decile))
+        if not (low <= cap <= high):
+            continue
+        members.append(
+            UniverseMember(permno=permno, market_cap=cap, decile=assign_decile(cap, breakpoints))
+        )
     members.sort(key=lambda m: m.market_cap)
     _log.info(
         "universe.selected",
         candidates=len(cross_section),
         selected=len(members),
-        deciles=f"{spec.min_decile}-{spec.max_decile}",
+        band_nominal_musd=f"{low / 1e6:,.0f}-{high / 1e6:,.0f}",
         min_cap=round(members[0].market_cap / 1e6, 1) if members else None,
         max_cap=round(members[-1].market_cap / 1e6, 1) if members else None,
     )

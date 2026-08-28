@@ -96,38 +96,53 @@ def _all_common() -> dict[int, int]:
     return dict.fromkeys(range(1, 200), 10)
 
 
-def test_selects_only_the_requested_deciles() -> None:
-    picked = select_universe(_cross_section(), _all_common(), UniverseSpec(min_price=0.0))
-    assert {m.decile for m in picked} <= {6, 7, 8}
-    assert picked  # non-empty
+def test_selects_only_names_inside_the_real_dollar_band() -> None:
+    # Cross-section spans $10M..$100M; a $20M-$60M band must select exactly those.
+    picked = select_universe(
+        _cross_section(),
+        _all_common(),
+        UniverseSpec(min_market_cap=20e6, max_market_cap=60e6, min_price=0.0),
+        year=2024,
+    )
+    assert [round(m.market_cap / 1e6) for m in picked] == [20, 30, 40, 50, 60]
+
+
+def test_bounds_are_deflated_for_earlier_formation_years() -> None:
+    # The same REAL band admits smaller NOMINAL companies in 1995.
+    spec = UniverseSpec(min_market_cap=20e6, max_market_cap=60e6, min_price=0.0)
+    in_2024 = select_universe(_cross_section(), _all_common(), spec, year=2024)
+    in_1995 = select_universe(_cross_section(), _all_common(), spec, year=1995)
+    assert max(m.market_cap for m in in_1995) < max(m.market_cap for m in in_2024)
 
 
 def test_price_floor_excludes_penny_names() -> None:
     rows = [*_cross_section(), _row(999, 2.0, 5000.0, hexcd=1)]
-    picked = select_universe(rows, _all_common(), UniverseSpec(min_price=5.0))
+    picked = select_universe(rows, _all_common(), UniverseSpec(min_price=5.0), year=2024)
     assert 999 not in {m.permno for m in picked}
 
 
 def test_non_common_share_codes_are_excluded() -> None:
     # shrcd 73 = closed-end fund; 31 = REIT. Neither is US common stock.
     codes = {**_all_common(), 7: 73, 8: 31}
-    picked = select_universe(_cross_section(), codes, UniverseSpec(min_price=0.0))
+    picked = select_universe(_cross_section(), codes, UniverseSpec(min_price=0.0), year=2024)
     assert {7, 8}.isdisjoint({m.permno for m in picked})
 
 
 def test_permno_absent_from_the_share_code_map_is_excluded() -> None:
     # Unknown share class is not an invitation to guess.
     codes = {k: v for k, v in _all_common().items() if k != 7}
-    picked = select_universe(_cross_section(), codes, UniverseSpec(min_price=0.0))
+    picked = select_universe(_cross_section(), codes, UniverseSpec(min_price=0.0), year=2024)
     assert 7 not in {m.permno for m in picked}
 
 
 def test_members_carry_market_cap_and_are_sorted_by_it() -> None:
-    picked = select_universe(_cross_section(), _all_common(), UniverseSpec(min_price=0.0))
+    picked = select_universe(
+        _cross_section(), _all_common(), UniverseSpec(min_price=0.0), year=2024
+    )
     caps = [m.market_cap for m in picked]
     assert caps == sorted(caps)
     assert all(c > 0 for c in caps)
 
 
 def test_empty_cross_section_yields_empty_universe() -> None:
-    assert select_universe([], _all_common(), UniverseSpec()) == []
+    assert select_universe([], _all_common(), UniverseSpec(), year=2024) == []
