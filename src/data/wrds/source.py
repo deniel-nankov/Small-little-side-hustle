@@ -35,6 +35,7 @@ from src.data.contracts.schemas import (
 )
 from src.data.source.base import DataSource
 from src.data.wrds.client import WRDSClient
+from src.data.wrds.delisting import DELIST_TABLE, apply_delisting, parse_delisting_row
 from src.monitoring.logger import get_logger
 
 if TYPE_CHECKING:
@@ -84,9 +85,17 @@ class WRDSSource(DataSource):
 
     name = "wrds"
 
-    def __init__(self, client: WRDSClient) -> None:
-        """Initialize with a configured :class:`WRDSClient`."""
+    def __init__(self, client: WRDSClient, *, merge_delisting: bool = True) -> None:
+        """Initialize with a configured :class:`WRDSClient`.
+
+        Args:
+            client: Configured WRDS REST client.
+            merge_delisting: Merge delisting returns into price series (default True).
+                Disabling it reintroduces a known upward bias and is intended only for
+                comparing against naive results.
+        """
         self._client = client
+        self._merge_delisting = merge_delisting
         self._names: list[dict[str, Any]] | None = None
 
     @classmethod
@@ -172,6 +181,27 @@ class WRDSSource(DataSource):
                 best = candidate
         return None if best is None else best[1]
 
+    def exchange_for(self, permno: int, on_date: date) -> int | None:
+        """Return the CRSP exchange code for ``permno`` around ``on_date``.
+
+        Used only to choose the imputation convention for a missing delisting return
+        (-30% NYSE/AMEX vs -55% NASDAQ).
+        """
+        best: tuple[int, int] | None = None
+        for row in self._stocknames():
+            if int(float(row["permno"])) != permno:
+                continue
+            start, end = _to_date(row.get("namedt")), _to_date(row.get("nameenddt"))
+            exchcd = _to_float(row.get("exchcd"))
+            if start is None or end is None or exchcd is None:
+                continue
+            distance = 0 if start <= on_date <= end else min(
+                abs((on_date - start).days), abs((on_date - end).days)
+            )
+            if best is None or distance < best[0]:
+                best = (distance, int(exchcd))
+        return None if best is None else best[1]
+
     # ------------------------------------------------------------------------ prices
     def get_prices(self, tickers: Sequence[str], start: date, end: date) -> list[PriceData]:
         """See :meth:`DataSource.get_prices`. Served by CRSP daily stock file.
@@ -204,9 +234,29 @@ class WRDSSource(DataSource):
                 )
                 continue
             rows = self._client.get_rows(DSF_TABLE, filters={"permno": permno})
-            out.extend(self._to_bars(ticker, rows, start, end))
+            bars = self._to_bars(ticker, rows, start, end)
+            if self._merge_delisting and bars:
+                bars = self._with_delisting(permno, bars, end)
+            out.extend(bars)
         _log.info("wrds.get_prices", tickers=len(tickers), records=len(out))
         return out
+
+    def _with_delisting(
+        self, permno: int, bars: list[PriceData], end: date
+    ) -> list[PriceData]:
+        """Merge the delisting return, imputing when CRSP reported none.
+
+        The return earned on delisting lives only in ``crsp.dsedelist``; omitting it
+        books every bankruptcy as a flat exit at the last quote.
+        """
+        for row in self._client.get_rows(DELIST_TABLE, filters={"permno": permno}):
+            event = parse_delisting_row(row)
+            if event is None or event.delist_date > end:
+                continue  # still listed, or delisted after the requested window
+            return apply_delisting(
+                bars, event, exchcd=self.exchange_for(permno, event.delist_date)
+            )
+        return bars
 
     @staticmethod
     def _to_bars(
