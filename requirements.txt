@@ -11,7 +11,7 @@ python-dotenv==1.2.2
 structlog==24.4.0
 
 # --- Numerics / data handling ---
-numpy==2.2.1
+numpy==2.4.6
 pandas==2.2.3
 scipy==1.17.1
 
