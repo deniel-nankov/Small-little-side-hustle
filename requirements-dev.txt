@@ -9,5 +9,5 @@ mypy==2.1.0
 pytest==8.3.4
 pytest-cov==6.0.0
 pip-audit==2.10.1
-bandit==1.8.0
+bandit==1.9.4
 types-python-dateutil==2.9.0.20241206
